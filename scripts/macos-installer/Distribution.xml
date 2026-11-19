@@ -6,7 +6,7 @@
   <conclusion file="conclusion.html" mime-type="text/html"/>
   <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
   <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
-  <allowed-os-versions><os-version min="12.0"/></allowed-os-versions>
+  <volume-check script="true"><allowed-os-versions><os-version min="12.0"/></allowed-os-versions></volume-check>
   <choices-outline><line choice="default"><line choice="app"/></line></choices-outline>
   <choice id="default"/>
   <choice id="app" visible="false"><pkg-ref id="io.github.AkparAby.proxy-gateway"/></choice>

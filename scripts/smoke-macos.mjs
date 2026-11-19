@@ -52,6 +52,7 @@ try {
   await exec('/usr/sbin/pkgutil',['--expand',pkg,expanded]);
   const distribution=await fs.readFile(path.join(expanded,'Distribution'),'utf8');
   if(!/hostArchitectures="arm64"/.test(distribution)) throw Error('PKG architecture gate missing');
+  if(!/<volume-check\b[^>]*>\s*<allowed-os-versions>\s*<os-version\s+min="12\.0"/.test(distribution)) throw Error('PKG minimum macOS version gate missing');
   await exec('/usr/bin/sudo',['/usr/sbin/installer','-pkg',pkg,'-target','/'],{timeout:120000});
   await verifyApp(app);
   const receipt=(await exec('/usr/sbin/pkgutil',['--pkg-info','io.github.AkparAby.proxy-gateway'])).stdout;
