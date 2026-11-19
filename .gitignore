@@ -1,0 +1,9 @@
+/runtime/
+/backups/
+/proxy-gateway.exe
+/config.json
+/logs/
+*.test.exe
+.env
+.env.*
+!.env.example
