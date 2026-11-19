@@ -62,7 +62,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer lf.Close()
+	defer func() { log.SetOutput(os.Stderr); lf.Close() }()
 	log.SetOutput(lf)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -102,6 +102,7 @@ func run() error {
 			startup.Lock()
 			defer startup.Unlock()
 			if err := ensureGateway(ctx, api, manager, root, lf); err != nil {
+				log.Print(err)
 				fyne.Do(func() { w.SetNotice(err.Error()); w.Show() })
 			}
 		}()

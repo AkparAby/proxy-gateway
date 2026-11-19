@@ -41,8 +41,11 @@ try {
     const child=spawn(mihomo,['-d',dir,'-f',cfg],{stdio:'inherit'}); children.push(child);
     child.on('error',e=>console.error(e));
   }
-  // LaunchServices opens the actual .app as Finder does, not only the raw binary.
-  await exec('/usr/bin/open',['-n',app,'--args','--smoke-test',path.join(temp,'desktop.png')]);
+  // Keep native GUI startup stderr attached to CI for early crash diagnostics.
+  // The subsequent hidden launch and reopen exercise Finder's LaunchServices.
+  const desktop=spawn(path.join(app,'Contents/MacOS/ProxyGateway'),['--smoke-test',path.join(temp,'desktop.png')],{stdio:'inherit'});
+  children.push(desktop);
+  desktop.on('error',e=>console.error('Desktop startup:',e));
   await waitFor(async()=>{const s=await status();token=s.token;return s.platform==='darwin'&&s.version===version&&s.config.outbounds.every(o=>s.health[o.id]?.available)},'native .app launch, default data path and two healthy upstreams');
   const s=await status();
   if(JSON.stringify(s.integrationOptions.map(x=>x[0]))!==JSON.stringify(['system','git','autostart'])) throw Error('Wrong Mac integration options');
@@ -76,7 +79,7 @@ try {
   await sleep(1500);
   for(const child of children) child.kill('SIGTERM');
   // Logs are CI diagnostics only; never copied into a release package.
-  for(const file of ['gateway.log','launcher.log','mihomo.log']) {
+  for(const file of ['desktop.log','gateway.log','launcher.log','mihomo.log']) {
     try{console.log(`--- ${file} ---\n`+(await fs.readFile(path.join(data,'runtime',file),'utf8')).slice(-6000))}catch{}
   }
 }
