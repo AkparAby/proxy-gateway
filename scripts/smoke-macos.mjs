@@ -34,6 +34,15 @@ try {
   }
   await exec('/usr/bin/codesign',['--verify','--deep','--strict',app]);
   console.log('PASS extracted ZIP permissions, file hashes and app signature');
+  // Probe the required system capability independently of our application.
+  // Standard virtualized Mac runners may have no accelerated NSOpenGL format.
+  const probeSource=path.join(temp,'opengl-probe.m'), probe=path.join(temp,'opengl-probe');
+  await fs.writeFile(probeSource,'#import <AppKit/AppKit.h>\n#include <stdio.h>\nint main(void) { @autoreleasepool { NSOpenGLPixelFormatAttribute a[]={NSOpenGLPFAAccelerated,0}; NSOpenGLPixelFormat *p=[[NSOpenGLPixelFormat alloc] initWithAttributes:a]; puts(p ? "available" : "unavailable"); return 0; } }\n');
+  await exec('/usr/bin/xcrun',['clang',probeSource,'-framework','AppKit','-framework','OpenGL','-o',probe]);
+  const nativeGUI=(await exec(probe,[])).stdout.trim()==='available';
+  await fs.mkdir('runtime',{recursive:true});
+  const report={version,nativeGUI:nativeGUI?'pending':'skipped',reason:nativeGUI?'':'Runner has no accelerated NSOpenGL pixel format',backend:'pending'};
+  await fs.writeFile('runtime/macos-validation.json',JSON.stringify(report,null,2));
   for(const port of [17891,7892]) {
     const dir=path.join(temp,String(port)); await fs.mkdir(dir);
     const cfg=path.join(dir,'config.json');
@@ -41,17 +50,24 @@ try {
     const child=spawn(mihomo,['-d',dir,'-f',cfg],{stdio:'inherit'}); children.push(child);
     child.on('error',e=>console.error(e));
   }
-  // Keep native GUI startup stderr attached to CI for early crash diagnostics.
-  // The subsequent hidden launch and reopen exercise Finder's LaunchServices.
-  const desktop=spawn(path.join(app,'Contents/MacOS/ProxyGateway'),['--smoke-test',path.join(temp,'desktop.png')],{stdio:'inherit'});
-  children.push(desktop);
-  desktop.on('error',e=>console.error('Desktop startup:',e));
-  await waitFor(async()=>{const s=await status();token=s.token;return s.platform==='darwin'&&s.version===version&&s.config.outbounds.every(o=>s.health[o.id]?.available)},'native .app launch, default data path and two healthy upstreams');
+  if(nativeGUI){
+    // Keep native GUI startup stderr attached to CI for early crash diagnostics.
+    // The subsequent hidden launch and reopen exercise Finder's LaunchServices.
+    const desktop=spawn(path.join(app,'Contents/MacOS/ProxyGateway'),['--smoke-test',path.join(temp,'desktop.png')],{stdio:'inherit'});
+    children.push(desktop);
+    desktop.on('error',e=>console.error('Desktop startup:',e));
+  }else{
+    console.log('::warning::Native Fyne window/tray tests skipped: this runner has no accelerated NSOpenGL pixel format. Headless UI tests and native backend tests still run.');
+    const backend=spawn(manager,['--background'],{stdio:'inherit'});children.push(backend);
+    backend.on('error',e=>console.error(e));
+  }
+  await waitFor(async()=>{const s=await status();token=s.token;return s.platform==='darwin'&&s.version===version&&s.config.outbounds.every(o=>s.health[o.id]?.available)},'native backend, default data path and two healthy upstreams');
   const s=await status();
   if(JSON.stringify(s.integrationOptions.map(x=>x[0]))!==JSON.stringify(['system','git','autostart'])) throw Error('Wrong Mac integration options');
   await fs.access(path.join(data,'config.json'));
   const pid = async()=>(await exec('/usr/sbin/lsof',['-t','-iTCP:17880','-sTCP:LISTEN'])).stdout.trim();
   const originalPID=await pid();
+  if(nativeGUI){
   await waitFor(async()=>{try{const result=JSON.parse(await fs.readFile(path.join(temp,'desktop.png.json'),'utf8'));return result.ready&&result.rendered&&!result.error&&result.version===version}catch{return false}},'Fyne native canvas, tray lifecycle and connected state');
   await fs.mkdir('runtime',{recursive:true});
   await fs.copyFile(path.join(temp,'desktop.png'),'runtime/mac-desktop-smoke.png');
@@ -64,16 +80,21 @@ try {
   if(JSON.parse(await fs.readFile(sessionPath,'utf8')).pid!==session.pid) throw Error('Duplicate desktop instance');
   console.log('PASS hidden desktop activation keeps a single UI process');
   await exec('/usr/bin/open',['-n',app]); await sleep(1500);
+  report.nativeGUI='passed';
+  }
   await exec(manager,['--background']);
   if(await pid()!==originalPID) throw Error('Duplicate manager');
-  console.log('PASS reopen app and background launch reuse existing manager');
+  console.log('PASS background launch reuses existing manager');
   await exec('node',['scripts/verify-port.mjs'],{timeout:180000}).then(r=>console.log(r.stdout));
   await exec('node',['scripts/verify-failover.mjs'],{timeout:240000}).then(r=>console.log(r.stdout));
   await exec(manager,['--restore']);
+  await exec(path.join(app,'Contents/MacOS/ProxyGateway'),['--restore']);
   console.log('PASS emergency restoration while manager is running');
   // Runtime writes must not alter the signed .app.
   await exec('/usr/bin/codesign',['--verify','--deep','--strict',app]);
   console.log('PASS app remains sealed after runtime and failover tests');
+  report.backend='passed';
+  await fs.writeFile('runtime/macos-validation.json',JSON.stringify(report,null,2));
 } finally {
   if(token) await fetch('http://127.0.0.1:17880/api/stop',{method:'POST',headers:{'Content-Type':'application/json','X-Gateway-Token':token},body:'{}'}).catch(()=>{});
   await sleep(1500);

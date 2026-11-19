@@ -266,7 +266,9 @@ CGO_ENABLED=1 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
 go run scripts/package-macos.go -version v0.3.0
 ```
 
-也可在 GitHub Actions 手动运行 **macOS Apple Silicon** 工作流，输入版本号。工作流在 `macos-15` Apple 芯片运行器上构建、执行原生测试、解压验证 `.app`，并演练 HTTP / SOCKS5 转发与多出口故障切换；下载其 `macos-arm64-release` Artifact 中的 ZIP。
+也可在 GitHub Actions 手动运行 **macOS Apple Silicon** 工作流，输入版本号。工作流在 `macos-15` Apple 芯片运行器上构建、执行 Go 与软件渲染界面测试、解压校验 `.app`，并演练原生后台的 HTTP / SOCKS5 转发、端口修改与多出口故障切换；下载其 `macos-arm64-release` Artifact 中的 ZIP。
+
+Fyne 桌面窗口需要可用的 OpenGL 图形环境。CI 会先检测系统的加速 NSOpenGL 能力；虚拟机不具备该能力时，明确跳过原生窗口、菜单栏和 Finder 唤起测试，保留后台功能及软件渲染测试，并将结果写入 `macos-validation.json` 测试附件。**此时 CI 通过不代表 Mac 窗口已完成真机验证**，使用 Apple 芯片实体 Mac 仍需验证窗口与菜单栏行为。
 
 打包脚本要求 Git 工作区干净，输出到 `dist/<版本>/`。它按 `scripts/mihomo.lock.json` 下载固定版本内核和对应源码，校验 SHA-256，构建对应平台的可执行文件，按显式文件列表生成 ZIP、源码附件和 `SHA256SUMS.txt`。已有打包目录不会被覆盖；Mac ZIP 保留可执行权限，并做 ad-hoc 签名验证。
 

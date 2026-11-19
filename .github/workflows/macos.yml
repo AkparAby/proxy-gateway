@@ -29,7 +29,7 @@ jobs:
           test "$(uname -m)" = arm64
           go test -race ./...
           go vet ./...
-          CGO_ENABLED=1 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
+          GATEWAY_UI_SCREENSHOT_DIR=../../runtime CGO_ENABLED=1 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
       - name: Package Apple Silicon app
         run: go run scripts/package-macos.go -version "$RELEASE_VERSION"
       - name: Test extracted app and real proxy failover
@@ -46,6 +46,10 @@ jobs:
         if: always()
         with:
           name: macos-desktop-test-image
-          path: runtime/mac-desktop-smoke.png
+          path: |
+            runtime/mac-desktop-smoke.png
+            runtime/fyne-preview.png
+            runtime/fyne-port-settings.png
+            runtime/macos-validation.json
           if-no-files-found: ignore
           retention-days: 7
