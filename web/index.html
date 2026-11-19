@@ -1,16 +1,47 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>本地代理网关</title><link rel="stylesheet" href="/style.css"></head><body><main>
-<header><div><div class="eyebrow">LOCAL PROXY GATEWAY</div><h1>一个入口，两个出口。</h1><p>应用连接 <code>127.0.0.1:17890</code>，主备切换交给网关。</p></div><span id="connection" class="pill">正在连接</span></header>
-<div id="notice" role="status" hidden></div>
-<section class="current"><div><span class="eyebrow">当前出口</span><h2 id="selected">检测中</h2><p id="reason">正在检查连接</p></div><button id="check">立即检查</button></section>
-<div class="cards"><article id="SpeedCat" class="card"><div class="row"><h3>SpeedCat</h3><span class="pill health">待检测</span></div><code class="endpoint"></code><p class="latency"></p><small class="detail"></small></article><article id="Clash" class="card"><div class="row"><h3>Clash Verge</h3><span class="pill health">待检测</span></div><code class="endpoint"></code><p class="latency"></p><small class="detail"></small></article></div>
-<section><div class="section-title"><h2>切换策略</h2><span id="saved">修改后点击保存策略</span></div><form id="settings"><div class="grid">
-<label>运行模式<select name="mode"><option value="auto">自动主备切换</option><option value="SpeedCat">固定 SpeedCat</option><option value="Clash">固定 Clash Verge</option></select></label>
-<label>优先出口<select name="primary"><option value="SpeedCat">SpeedCat</option><option value="Clash">Clash Verge</option></select></label>
-<label>主出口恢复后<select name="autoReturn"><option value="true">稳定后自动切回</option><option value="false">保持备用，手动切回</option></select></label>
-<label>恢复观察时间（秒）<input name="recovery" type="number" min="0" max="3600" required></label>
-<label>检查间隔（秒）<input name="interval" type="number" min="3" max="300" required></label><label>单次超时（毫秒）<input name="timeout" type="number" min="500" max="10000" step="100" required></label><label>连续失败次数<input name="failures" type="number" min="1" max="10" required></label></div>
-<details><summary>出口地址与分流设置</summary><div class="grid"><label>SpeedCat 协议<select name="speedcatType"><option value="http">HTTP</option><option value="socks5">SOCKS5</option></select></label><label>SpeedCat 端口<input name="speedcatPort" type="number" min="1" max="65535" required></label><label>Clash 协议<select name="clashType"><option value="http">HTTP</option><option value="socks5">SOCKS5</option></select></label><label>Clash 端口<input name="clashPort" type="number" min="1" max="65535" required></label></div><label>HTTPS 检测地址（每行一个，任一成功即通过）<textarea name="targets" rows="3"></textarea></label><label>直连域名后缀（每行一个，不写通配符）<textarea name="directDomains" rows="4"></textarea></label><p class="hint">本机、局域网和 Tailscale 私有地址直连。其他进入网关的请求走主备出口；出口客户端仍可按自身规则分流。</p></details>
-<div class="actions"><button type="submit" class="primary">保存策略</button><button type="button" id="return">现在切回主出口</button></div></form></section>
-<section><h2>应用接入</h2><p class="hint">每项独立启用，并保存原值供恢复。系统代理影响所有遵循它的应用；环境变量对新启动的程序生效。</p><div id="integrations"></div><p class="hint">Codex 桌面网络可随系统代理接入；终端与子进程需重启后继承环境变量。Git SSH 不受 HTTP 代理选项控制。Docker/WSL 接入说明见项目 README。</p></section>
-<section><h2>最近事件</h2><ul id="events"></ul></section><footer><span>仅本机管理 · HTTP / SOCKS5 统一入口 · 已有连接可能需要重试</span><button id="stop" class="danger">恢复接入设置并停止</button></footer>
-</main><script src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>本地代理网关</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body><main>
+  <header>
+    <div><div class="eyebrow">LOCAL PROXY GATEWAY</div><h1>一个入口，多个代理出口。</h1><p>应用连接 <code>127.0.0.1:17890</code>，出口按优先级自动切换。</p></div>
+    <div class="connection-info"><span id="connection" class="pill">正在连接</span><small id="version"></small></div>
+  </header>
+  <div id="notice" role="status" hidden></div>
+  <section class="current">
+    <div><span class="eyebrow">当前出口</span><h2 id="selected">检测中</h2><p id="reason">正在检查连接</p></div>
+    <button id="check" disabled>立即检查</button>
+  </section>
+  <div id="health-cards" class="cards" aria-label="已保存出口的实时状态"></div>
+  <section>
+    <div class="section-title"><h2>代理出口与切换策略</h2><span id="saved" role="status">正在加载配置</span></div>
+    <form id="settings"><fieldset id="config-fields" disabled>
+      <p class="hint">支持 1–16 个本机 HTTP / SOCKS5 出口。列表越靠前优先级越高，第一个是首选出口。名称仅用于识别，不限定代理软件。修改后需要保存。</p>
+      <div id="outbound-editor"></div>
+      <button id="add-outbound" type="button">＋ 添加代理应用</button>
+      <div class="grid policy-grid">
+        <label>运行模式<select name="mode"><option value="auto">自动按优先级切换</option></select></label>
+        <label>更高优先级出口恢复后<select name="autoReturn"><option value="true">稳定后自动切回</option><option value="false">保持当前出口，手动切回</option></select></label>
+        <label>恢复观察时间（秒）<input name="recovery" type="number" min="0" max="3600" required></label>
+        <label>检查间隔（秒）<input name="interval" type="number" min="3" max="300" required></label>
+        <label>单次超时（毫秒）<input name="timeout" type="number" min="500" max="10000" step="100" required></label>
+        <label>连续失败次数<input name="failures" type="number" min="1" max="10" required></label>
+      </div>
+      <details><summary>检测地址与直连规则</summary>
+        <label>HTTPS 检测地址（每行一个，任一成功即通过）<textarea name="targets" rows="3"></textarea></label>
+        <label>直连域名后缀（每行一个，不写通配符）<textarea name="directDomains" rows="4"></textarea></label>
+        <p class="hint">本机、局域网和 Tailscale 私有地址直连。其他进入网关的请求按出口优先级转发；出口客户端仍可按自身规则分流。上游暂不支持账号密码认证。</p>
+      </details>
+      <div class="actions"><button type="submit" class="primary">保存出口与策略</button><button id="discard" type="button">撤销修改</button></div>
+    </fieldset></form>
+    <div class="actions"><button id="return" type="button" disabled>现在切回首选出口</button><small>针对已保存的配置，仅自动模式可用。</small></div>
+  </section>
+  <section><h2>应用接入</h2><p class="hint">每项独立启用，并保存原值供恢复。系统代理影响所有遵循它的应用；环境变量对新启动的程序生效。</p><div id="integrations"></div><p class="hint">终端与子进程需重启后继承环境变量。Git SSH 不受 HTTP 代理选项控制。Docker/WSL 接入说明见项目 README。</p></section>
+  <section><h2>最近事件</h2><ul id="events"></ul></section>
+  <footer><span>仅本机管理 · HTTP / SOCKS5 统一入口 · 已有连接可能需要重试</span><button id="stop" class="danger" disabled>恢复接入设置并停止</button></footer>
+</main><script src="/app.js"></script></body>
+</html>

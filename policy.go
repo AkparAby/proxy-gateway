@@ -35,28 +35,29 @@ func (h *Health) record(ok bool, latency int, detail string, now time.Time, limi
 }
 func choose(c Config, current string, h map[string]Health, now time.Time) (string, string) {
 	if c.Mode != "auto" {
-		if h[c.Mode].Available {
+		if c.index(c.Mode) >= 0 && h[c.Mode].Available {
 			return c.Mode, "手动固定出口"
 		}
 		return "REJECT", "手动指定的出口不可用"
 	}
-	primary := c.Primary
-	secondary := "Clash"
-	if primary == "Clash" {
-		secondary = "SpeedCat"
-	}
-	if current == secondary && h[secondary].Available {
-		p := h[primary]
-		if c.AutoReturn && p.Available && !p.HealthySince.IsZero() && now.Sub(p.HealthySince) >= time.Duration(c.Recovery)*time.Second {
-			return primary, "主出口已持续恢复，自动切回"
+	if index := c.index(current); index >= 0 && h[current].Available {
+		if c.AutoReturn {
+			for _, o := range c.Outbounds[:index] {
+				candidate := h[o.ID]
+				if candidate.Available && !candidate.HealthySince.IsZero() && now.Sub(candidate.HealthySince) >= time.Duration(c.Recovery)*time.Second {
+					return o.ID, "更高优先级出口已稳定恢复，自动切回"
+				}
+			}
 		}
-		return secondary, "继续使用备用出口"
+		if index == 0 {
+			return current, "使用健康的首选出口"
+		}
+		return current, "继续使用当前备用出口"
 	}
-	if h[primary].Available {
-		return primary, "使用健康的主出口"
+	for _, o := range c.Outbounds {
+		if h[o.ID].Available {
+			return o.ID, "按优先级选择可用出口"
+		}
 	}
-	if h[secondary].Available {
-		return secondary, "主出口不可用，切换备用"
-	}
-	return "REJECT", "两个出口均不可用，暂停代理请求"
+	return "REJECT", "所有出口均不可用，暂停代理请求"
 }

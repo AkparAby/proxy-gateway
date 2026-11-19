@@ -81,14 +81,17 @@ func (m *Manager) cycle(ctx context.Context) {
 		latency int
 		detail  string
 	}
-	ch := make(chan outcome, 2)
-	for _, name := range []string{"SpeedCat", "Clash"} {
+	ch := make(chan outcome, len(conf.Outbounds))
+	for _, outbound := range conf.Outbounds {
 		go func(name string) {
 			ok, latency, detail := m.core.probe(ctx, name, conf)
 			ch <- outcome{name, ok, latency, detail}
-		}(name)
+		}(outbound.ID)
 	}
-	outcomes := []outcome{<-ch, <-ch}
+	outcomes := make([]outcome, 0, len(conf.Outbounds))
+	for range conf.Outbounds {
+		outcomes = append(outcomes, <-ch)
+	}
 	now := time.Now()
 	m.mu.Lock()
 	for _, r := range outcomes {
@@ -97,7 +100,7 @@ func (m *Manager) cycle(ctx context.Context) {
 		h.record(r.ok, r.latency, r.detail, now, conf.Failures)
 		m.health[r.name] = h
 		if was != h.Available {
-			m.event(fmt.Sprintf("%s 状态：可用=%t", r.name, h.Available))
+			m.event(fmt.Sprintf("%s 状态：可用=%t", conf.name(r.name), h.Available))
 		}
 	}
 	next, reason := choose(conf, m.selected, m.health, now)
@@ -113,7 +116,7 @@ func (m *Manager) cycle(ctx context.Context) {
 	}
 	m.lastError = ""
 	if next != m.selected {
-		m.event(fmt.Sprintf("出口 %s → %s：%s", m.selected, next, reason))
+		m.event(fmt.Sprintf("出口 %s → %s：%s", conf.name(m.selected), conf.name(next), reason))
 		m.selected = next
 		_ = atomicJSON(filepath.Join(m.root, "runtime", "selection.json"), map[string]string{"selected": next})
 	}
@@ -144,7 +147,11 @@ func (m *Manager) status() map[string]any {
 	if err == nil {
 		_ = json.Unmarshal(data, &integrations)
 	}
-	return map[string]any{"version": version, "commit": commit, "config": m.config, "health": m.health, "selected": m.selected, "reason": m.reason, "error": m.lastError, "events": m.events, "token": m.token, "proxy": "127.0.0.1:17890", "dashboard": "http://127.0.0.1:17880", "integrations": integrations}
+	health := make(map[string]Health, len(m.health))
+	for id, value := range m.health {
+		health[id] = value
+	}
+	return map[string]any{"version": version, "commit": commit, "config": m.config, "health": health, "selected": m.selected, "reason": m.reason, "error": m.lastError, "events": append([]Event(nil), m.events...), "token": m.token, "proxy": "127.0.0.1:17890", "dashboard": "http://127.0.0.1:17880", "integrations": integrations}
 }
 func (m *Manager) saveConfig(ctx context.Context, c Config) error {
 	if e := c.validate(); e != nil {
@@ -154,27 +161,37 @@ func (m *Manager) saveConfig(ctx context.Context, c Config) error {
 	defer m.op.Unlock()
 	m.mu.Lock()
 	old := m.config
+	oldSelected := m.selected
 	m.mu.Unlock()
 	path := filepath.Join(m.core.dir, "config.json")
+	rollback := func() {
+		_ = atomicJSON(path, coreConfig(old, m.core.secret))
+		_ = m.core.reload(ctx)
+		_ = m.core.selectProxy(ctx, oldSelected)
+	}
 	if e := atomicJSON(path, coreConfig(c, m.core.secret)); e != nil {
 		return e
 	}
 	if e := m.core.reload(ctx); e != nil {
-		_ = atomicJSON(path, coreConfig(old, m.core.secret))
-		_ = m.core.reload(ctx)
+		rollback()
+		return e
+	}
+	if e := m.core.selectProxy(ctx, "REJECT"); e != nil {
+		rollback()
 		return e
 	}
 	if e := atomicJSON(filepath.Join(m.root, "config.json"), c); e != nil {
-		_ = atomicJSON(path, coreConfig(old, m.core.secret))
-		_ = m.core.reload(ctx)
+		rollback()
 		return e
 	}
 	m.mu.Lock()
 	m.config = c
-	m.health = map[string]Health{"SpeedCat": {}, "Clash": {}}
+	m.health = c.initialHealth()
+	m.selected = "REJECT"
 	m.reason = "配置已保存，重新检测出口"
 	m.event("已更新网关配置")
 	m.mu.Unlock()
+	_ = atomicJSON(filepath.Join(m.root, "runtime", "selection.json"), map[string]string{"selected": "REJECT"})
 	m.kick()
 	return nil
 }
@@ -182,11 +199,15 @@ func (m *Manager) returnPrimary(ctx context.Context) error {
 	m.op.Lock()
 	defer m.op.Unlock()
 	m.mu.Lock()
-	primary := m.config.Primary
+	primary := m.config.primary()
+	auto := m.config.Mode == "auto"
 	healthy := m.health[primary].Available
 	m.mu.Unlock()
+	if !auto {
+		return errors.New("请先切换到自动模式，再手动切回首选出口")
+	}
 	if !healthy {
-		return errors.New("主出口尚未恢复，请先检查连接")
+		return errors.New("首选出口尚未恢复，请先检查连接")
 	}
 	if err := m.core.selectProxy(ctx, primary); err != nil {
 		return err
@@ -194,7 +215,7 @@ func (m *Manager) returnPrimary(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.selected = primary
-	m.reason = "已手动切回主出口，保留当前切换模式"
+	m.reason = "已手动切回首选出口，保留自动切换模式"
 	m.event(m.reason)
 	return atomicJSON(filepath.Join(m.root, "runtime", "selection.json"), map[string]string{"selected": primary})
 }
@@ -381,7 +402,7 @@ func run() error {
 	selected := "REJECT"
 	var last map[string]string
 	if b, e := os.ReadFile(filepath.Join(core.dir, "selection.json")); e == nil {
-		if json.Unmarshal(b, &last) == nil && (last["selected"] == "SpeedCat" || last["selected"] == "Clash") {
+		if json.Unmarshal(b, &last) == nil && conf.index(last["selected"]) >= 0 {
 			selected = last["selected"]
 		}
 	}
@@ -390,7 +411,7 @@ func run() error {
 		log.Println(e)
 	}
 	defer bridges.close()
-	m := &Manager{config: conf, health: map[string]Health{"SpeedCat": {}, "Clash": {}}, selected: selected, root: root, core: core, token: nonce(), wake: make(chan struct{}, 1), cancel: cancel, bridges: bridges}
+	m := &Manager{config: conf, health: conf.initialHealth(), selected: selected, root: root, core: core, token: nonce(), wake: make(chan struct{}, 1), cancel: cancel, bridges: bridges}
 	m.event("本地代理网关已启动")
 	go m.monitor(ctx)
 	server := &http.Server{Handler: http.HandlerFunc(m.serve), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
@@ -410,7 +431,7 @@ func run() error {
 				m.op.Lock()
 				m.mu.Lock()
 				m.lastError = fmt.Sprintf("内核退出，正在重启：%v", err)
-				m.health = map[string]Health{"SpeedCat": {}, "Clash": {}}
+				m.health = m.config.initialHealth()
 				m.event(m.lastError)
 				m.mu.Unlock()
 				for ctx.Err() == nil {

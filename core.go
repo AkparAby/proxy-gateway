@@ -103,7 +103,7 @@ func (c *Core) stop() {
 	}
 }
 func (c *Core) selectProxy(ctx context.Context, name string) error {
-	return c.request(ctx, "PUT", "/proxies/Gateway", map[string]string{"name": name}, nil)
+	return c.request(ctx, "PUT", "/proxies/Gateway", map[string]string{"name": coreName(name)}, nil)
 }
 func (c *Core) reload(ctx context.Context) error {
 	return c.request(ctx, "PUT", "/configs?force=true", map[string]string{"path": filepath.Join(c.dir, "config.json")}, nil)
@@ -121,7 +121,7 @@ func (c *Core) probe(ctx context.Context, name string, conf Config) (bool, int, 
 			var data struct {
 				Delay int `json:"delay"`
 			}
-			path := "/proxies/" + url.PathEscape(name) + "/delay?url=" + url.QueryEscape(target) + "&timeout=" + fmt.Sprint(conf.Timeout) + "&expected=200-299"
+			path := "/proxies/" + url.PathEscape(coreName(name)) + "/delay?url=" + url.QueryEscape(target) + "&timeout=" + fmt.Sprint(conf.Timeout) + "&expected=200-299"
 			err := c.request(probeCtx, "GET", path, nil, &data)
 			results <- result{err == nil, data.Delay}
 		}(target)

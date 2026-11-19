@@ -8,6 +8,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type Endpoint struct {
@@ -15,28 +19,83 @@ type Endpoint struct {
 	Host string `json:"host"`
 	Port int    `json:"port"`
 }
+type Outbound struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Endpoint
+}
 type Config struct {
-	Primary       string   `json:"primary"`
-	Mode          string   `json:"mode"`
-	AutoReturn    bool     `json:"autoReturn"`
-	Interval      int      `json:"interval"`
-	Timeout       int      `json:"timeout"`
-	Failures      int      `json:"failures"`
-	Recovery      int      `json:"recovery"`
-	Targets       []string `json:"targets"`
-	SpeedCat      Endpoint `json:"speedcat"`
-	Clash         Endpoint `json:"clash"`
-	DirectDomains []string `json:"directDomains"`
+	SchemaVersion int        `json:"schemaVersion"`
+	Outbounds     []Outbound `json:"outbounds"`
+	Mode          string     `json:"mode"`
+	AutoReturn    bool       `json:"autoReturn"`
+	Interval      int        `json:"interval"`
+	Timeout       int        `json:"timeout"`
+	Failures      int        `json:"failures"`
+	Recovery      int        `json:"recovery"`
+	Targets       []string   `json:"targets"`
+	DirectDomains []string   `json:"directDomains"`
 }
 
 func defaults() Config {
-	return Config{Primary: "SpeedCat", Mode: "auto", AutoReturn: true, Interval: 10, Timeout: 3000, Failures: 3, Recovery: 60, Targets: []string{"https://www.gstatic.com/generate_204", "https://cp.cloudflare.com/generate_204"}, SpeedCat: Endpoint{"http", "127.0.0.1", 17891}, Clash: Endpoint{"http", "127.0.0.1", 7892}, DirectDomains: []string{"localhost", "local"}}
+	return Config{SchemaVersion: 2, Outbounds: []Outbound{
+		{"proxy-1", "代理 1", Endpoint{"http", "127.0.0.1", 17891}},
+		{"proxy-2", "代理 2", Endpoint{"http", "127.0.0.1", 7892}},
+	}, Mode: "auto", AutoReturn: true, Interval: 10, Timeout: 3000, Failures: 3, Recovery: 60,
+		Targets: []string{"https://www.gstatic.com/generate_204", "https://cp.cloudflare.com/generate_204"}, DirectDomains: []string{"localhost", "local"}}
+}
+
+const maxOutbounds = 16
+
+var outboundID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`)
+
+func (c Config) index(id string) int {
+	for i, o := range c.Outbounds {
+		if o.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+func (c Config) primary() string {
+	if len(c.Outbounds) == 0 {
+		return "REJECT"
+	}
+	return c.Outbounds[0].ID
+}
+func (c Config) name(id string) string {
+	if i := c.index(id); i >= 0 {
+		return c.Outbounds[i].Name
+	}
+	if id == "REJECT" {
+		return "暂无可用出口"
+	}
+	return id
+}
+func (c Config) initialHealth() map[string]Health {
+	h := make(map[string]Health, len(c.Outbounds))
+	for _, o := range c.Outbounds {
+		h[o.ID] = Health{}
+	}
+	return h
+}
+
+// Display names never become Mihomo identifiers, so renaming is safe and names
+// such as DIRECT or Gateway cannot collide with built-in routes.
+func coreName(id string) string {
+	if id == "REJECT" {
+		return id
+	}
+	return "upstream-" + id
 }
 func (c Config) validate() error {
-	if c.Primary != "SpeedCat" && c.Primary != "Clash" {
-		return errors.New("主出口无效")
+	if c.SchemaVersion != 2 {
+		return errors.New("配置版本不支持，请刷新管理页或更新程序")
 	}
-	if c.Mode != "auto" && c.Mode != "SpeedCat" && c.Mode != "Clash" {
+	if len(c.Outbounds) < 1 || len(c.Outbounds) > maxOutbounds {
+		return fmt.Errorf("请配置 1–%d 个代理出口", maxOutbounds)
+	}
+	if c.Mode != "auto" && c.index(c.Mode) < 0 {
 		return errors.New("模式无效")
 	}
 	if c.Interval < 3 || c.Interval > 300 || c.Timeout < 500 || c.Timeout > 10000 || c.Failures < 1 || c.Failures > 10 || c.Recovery < 0 || c.Recovery > 3600 {
@@ -51,14 +110,27 @@ func (c Config) validate() error {
 			return errors.New("检测地址必须为不含凭据的 HTTPS URL")
 		}
 	}
-	for _, e := range []Endpoint{c.SpeedCat, c.Clash} {
+	ids, names, addresses := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for _, o := range c.Outbounds {
+		if !outboundID.MatchString(o.ID) || o.ID == "auto" || o.ID == "REJECT" || ids[o.ID] {
+			return errors.New("出口标识无效或重复")
+		}
+		ids[o.ID] = true
+		name := strings.TrimSpace(o.Name)
+		if name == "" || name != o.Name || utf8.RuneCountInString(name) > 60 || strings.ContainsFunc(name, unicode.IsControl) || names[strings.ToLower(name)] {
+			return errors.New("出口名称须为不重复的 1–60 个字符，不能包含控制字符或首尾空格")
+		}
+		names[strings.ToLower(name)] = true
+		e := o.Endpoint
 		ip := net.ParseIP(e.Host)
 		if ip == nil || !ip.IsLoopback() || (e.Type != "http" && e.Type != "socks5") || e.Port < 1 || e.Port > 65535 || e.Port == 17890 || e.Port == 17880 || e.Port == 17881 {
 			return errors.New("出口必须使用独立的本地 HTTP/SOCKS5 端口")
 		}
-	}
-	if c.SpeedCat.Host == c.Clash.Host && c.SpeedCat.Port == c.Clash.Port {
-		return errors.New("两个出口不能使用同一地址")
+		address := net.JoinHostPort(ip.String(), fmt.Sprint(e.Port))
+		if addresses[address] {
+			return errors.New("不同出口不能使用同一地址和端口")
+		}
+		addresses[address] = true
 	}
 	for _, d := range c.DirectDomains {
 		if len(d) == 0 || len(d) > 253 {
@@ -111,7 +183,54 @@ func readConfig(path string) (Config, error) {
 	if e = json.Unmarshal(b, &c); e != nil {
 		return c, e
 	}
-	return c, c.validate()
+	var fields map[string]json.RawMessage
+	if e = json.Unmarshal(b, &fields); e != nil {
+		return c, e
+	}
+	_, hasOutbounds := fields["outbounds"]
+	legacy := !hasOutbounds && (fields["primary"] != nil || fields["speedcat"] != nil || fields["clash"] != nil)
+	if legacy {
+		old := struct {
+			Primary  string   `json:"primary"`
+			SpeedCat Endpoint `json:"speedcat"`
+			Clash    Endpoint `json:"clash"`
+		}{"SpeedCat", Endpoint{"http", "127.0.0.1", 17891}, Endpoint{"http", "127.0.0.1", 7892}}
+		if e = json.Unmarshal(b, &old); e != nil {
+			return c, e
+		}
+		if old.Primary != "SpeedCat" && old.Primary != "Clash" {
+			return c, errors.New("旧配置主出口无效")
+		}
+		c.Outbounds = []Outbound{{"SpeedCat", "SpeedCat", old.SpeedCat}, {"Clash", "Clash Verge", old.Clash}}
+		if old.Primary == "Clash" {
+			c.Outbounds[0], c.Outbounds[1] = c.Outbounds[1], c.Outbounds[0]
+		}
+	}
+	if e = c.validate(); e != nil {
+		return c, e
+	}
+	if legacy {
+		backupDir := filepath.Join(filepath.Dir(path), "backups")
+		if e = os.MkdirAll(backupDir, 0700); e != nil {
+			return c, e
+		}
+		backup, err := os.CreateTemp(backupDir, "config-v1-*.json")
+		if err != nil {
+			return c, err
+		}
+		_, err = backup.Write(b)
+		closeErr := backup.Close()
+		if err != nil {
+			return c, err
+		}
+		if closeErr != nil {
+			return c, closeErr
+		}
+		if e = atomicJSON(path, c); e != nil {
+			return c, e
+		}
+	}
+	return c, nil
 }
 func coreConfig(c Config, secret string) map[string]any {
 	rules := []string{"DOMAIN,localhost,DIRECT", "DOMAIN-SUFFIX,local,DIRECT", "IP-CIDR,127.0.0.0/8,DIRECT,no-resolve", "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve", "IP-CIDR,172.16.0.0/12,DIRECT,no-resolve", "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve", "IP-CIDR,100.64.0.0/10,DIRECT,no-resolve", "IP-CIDR6,::1/128,DIRECT,no-resolve", "IP-CIDR6,fc00::/7,DIRECT,no-resolve", "IP-CIDR6,fe80::/10,DIRECT,no-resolve"}
@@ -119,11 +238,12 @@ func coreConfig(c Config, secret string) map[string]any {
 		rules = append(rules, "DOMAIN-SUFFIX,"+d+",DIRECT")
 	}
 	rules = append(rules, "MATCH,Gateway")
-	proxy := func(name string, e Endpoint) map[string]any {
-		return map[string]any{"name": name, "type": e.Type, "server": e.Host, "port": e.Port, "udp": false}
+	proxies := make([]any, 0, len(c.Outbounds))
+	choices := []string{"REJECT"}
+	for _, o := range c.Outbounds {
+		name := coreName(o.ID)
+		proxies = append(proxies, map[string]any{"name": name, "type": o.Type, "server": o.Host, "port": o.Port, "udp": false})
+		choices = append(choices, name)
 	}
-	return map[string]any{"mixed-port": 17890, "bind-address": "127.0.0.1", "allow-lan": false, "mode": "rule", "log-level": "warning", "ipv6": true, "external-controller": "127.0.0.1:17881", "secret": secret, "tun": map[string]any{"enable": false}, "dns": map[string]any{"enable": false}, "profile": map[string]any{"store-selected": false}, "proxies": []any{proxy("SpeedCat", c.SpeedCat), proxy("Clash", c.Clash)}, "proxy-groups": []any{map[string]any{"name": "Gateway", "type": "select", "proxies": []string{"REJECT", "SpeedCat", "Clash"}}}, "rules": rules}
-}
-func endpointURL(e Endpoint) string {
-	return fmt.Sprintf("%s://%s", e.Type, net.JoinHostPort(e.Host, fmt.Sprint(e.Port)))
+	return map[string]any{"mixed-port": 17890, "bind-address": "127.0.0.1", "allow-lan": false, "mode": "rule", "log-level": "warning", "ipv6": true, "external-controller": "127.0.0.1:17881", "secret": secret, "tun": map[string]any{"enable": false}, "dns": map[string]any{"enable": false}, "profile": map[string]any{"store-selected": false}, "proxies": proxies, "proxy-groups": []any{map[string]any{"name": "Gateway", "type": "select", "proxies": choices}}, "rules": rules}
 }
