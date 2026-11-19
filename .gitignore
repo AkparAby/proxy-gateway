@@ -3,6 +3,8 @@
 /proxy-gateway.exe
 /config.json
 /logs/
+/dist/
+/.release-cache/
 *.test.exe
 .env
 .env.*

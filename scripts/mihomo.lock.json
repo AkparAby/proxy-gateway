@@ -1,0 +1,16 @@
+{
+  "version": "v1.19.33",
+  "commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
+  "binary": {
+    "name": "mihomo-windows-amd64-v1-v1.19.33.zip",
+    "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/mihomo-windows-amd64-v1-v1.19.33.zip",
+    "sha256": "fb0b960eff568459502d4ebe53e9cca203053d86ec9024fe935f19615d74d9aa",
+    "entry": "mihomo-windows-amd64-v1.exe"
+  },
+  "source": {
+    "name": "mihomo-v1.19.33-source.zip",
+    "url": "https://codeload.github.com/MetaCubeX/mihomo/zip/3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
+    "sha256": "030a128de8be6d70ddfd6fa4c229f1158d5c42a96451fffdea929331d3cbe5b8",
+    "licenseEntry": "mihomo-3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8/LICENSE"
+  }
+}

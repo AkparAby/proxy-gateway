@@ -24,6 +24,10 @@ import (
 //go:embed web/*
 var web embed.FS
 
+// Set by the release build; visible in /api/status for support and verification.
+var version = "dev"
+var commit = "unknown"
+
 type Event struct {
 	Time    time.Time `json:"time"`
 	Message string    `json:"message"`
@@ -140,7 +144,7 @@ func (m *Manager) status() map[string]any {
 	if err == nil {
 		_ = json.Unmarshal(data, &integrations)
 	}
-	return map[string]any{"config": m.config, "health": m.health, "selected": m.selected, "reason": m.reason, "error": m.lastError, "events": m.events, "token": m.token, "proxy": "127.0.0.1:17890", "dashboard": "http://127.0.0.1:17880", "integrations": integrations}
+	return map[string]any{"version": version, "commit": commit, "config": m.config, "health": m.health, "selected": m.selected, "reason": m.reason, "error": m.lastError, "events": m.events, "token": m.token, "proxy": "127.0.0.1:17890", "dashboard": "http://127.0.0.1:17880", "integrations": integrations}
 }
 func (m *Manager) saveConfig(ctx context.Context, c Config) error {
 	if e := c.validate(); e != nil {

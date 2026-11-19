@@ -30,7 +30,7 @@ type Config struct {
 }
 
 func defaults() Config {
-	return Config{Primary: "SpeedCat", Mode: "auto", AutoReturn: true, Interval: 10, Timeout: 3000, Failures: 3, Recovery: 60, Targets: []string{"https://www.gstatic.com/generate_204", "https://cp.cloudflare.com/generate_204"}, SpeedCat: Endpoint{"http", "127.0.0.1", 17891}, Clash: Endpoint{"http", "127.0.0.1", 7892}, DirectDomains: []string{"localhost", "local", "zhihu.com", "zhimg.com", "jd.com", "360buyimg.com", "xfyun.cn"}}
+	return Config{Primary: "SpeedCat", Mode: "auto", AutoReturn: true, Interval: 10, Timeout: 3000, Failures: 3, Recovery: 60, Targets: []string{"https://www.gstatic.com/generate_204", "https://cp.cloudflare.com/generate_204"}, SpeedCat: Endpoint{"http", "127.0.0.1", 17891}, Clash: Endpoint{"http", "127.0.0.1", 7892}, DirectDomains: []string{"localhost", "local"}}
 }
 func (c Config) validate() error {
 	if c.Primary != "SpeedCat" && c.Primary != "Clash" {

@@ -1,126 +1,213 @@
-# 本地代理网关
+# Proxy Gateway · 本地代理网关
 
-Windows 上统一接入 SpeedCat 和 Clash Verge，默认 SpeedCat 主用、Clash 备用。HTTP 和 SOCKS5 应用都连接 `127.0.0.1:17890`。
+**给 Windows 应用一个固定代理入口，在两个本地代理客户端之间自动主备切换。**
 
-管理页面：<http://127.0.0.1:17880>
+[![Release](https://img.shields.io/github/v/release/AkparAby/proxy-gateway)](https://github.com/AkparAby/proxy-gateway/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Windows-x64-0078D4)](https://github.com/AkparAby/proxy-gateway/releases/latest)
 
-## 使用
+Proxy Gateway 使用 **Go 管理程序 + 独立 Mihomo 内核**，提供中文 Web 管理页。默认 SpeedCat 为主出口、Clash Verge 为备用；应用始终连接同一地址，网关负责检测出口、故障切换和恢复回切。
 
-1. 保持 SpeedCat 和 Clash Verge 的代理服务运行。
-2. 启动 `Start-Gateway.ps1`，或直接运行 `proxy-gateway.exe`。当前已开启网关的用户登录自启动。
-3. 在管理页查看出口状态、调整策略，按需启用或停用应用接入。
+[下载 Windows 便携版](https://github.com/AkparAby/proxy-gateway/releases/latest) · [报告问题](https://github.com/AkparAby/proxy-gateway/issues) · [许可证说明](THIRD_PARTY_NOTICES.md)
 
-| 组件 | 地址 | 用途 |
+## 能做什么
+
+- **统一入口**：HTTP、HTTPS CONNECT 和 SOCKS5 共用 `127.0.0.1:17890`。
+- **自动主备切换**：通过出口实际访问 HTTPS 地址，连续失败后切到健康备用，减少偶发波动导致的切换。
+- **可选回切策略**：主出口稳定恢复后自动切回，或保持备用、手动切回；也支持固定出口。
+- **按需接入**：分别启用 Windows 系统代理、终端环境变量、Git HTTPS、Docker Desktop、WSL Ubuntu。
+- **便携运行**：Release 包含 EXE、内核和必要脚本，无需安装 Go、Node.js 或 Python。
+- **可恢复设置**：接入功能保存原值；可逐项停用恢复，或恢复后停止网关。可选当前用户登录自启动。
+
+这是主备故障切换工具，目前不做流量轮询、带宽叠加或已有连接的无缝迁移。
+
+## 工作方式
+
+```mermaid
+flowchart LR
+    Apps["浏览器 / 桌面应用 / Git / 终端"] --> Gateway["本地网关 127.0.0.1:17890"]
+    Linux["Docker / WSL（可选接入）"] --> Gateway
+    Gateway -->|默认主用| SpeedCat["SpeedCat 127.0.0.1:17891"]
+    Gateway -.->|主出口故障时切换| Clash["Clash Verge 127.0.0.1:7892"]
+    SpeedCat --> Internet["网络"]
+    Clash --> Internet
+```
+
+网关本身不提供代理节点、账号或订阅。两个出口客户端需要分别安装、配置并保持连接；它们各自的节点选择和分流规则仍然生效。
+
+## 快速开始
+
+### 1. 下载并解压
+
+在 [Releases](https://github.com/AkparAby/proxy-gateway/releases/latest) 下载 `proxy-gateway-vX.Y.Z-windows-amd64.zip`，**完整解压**到当前用户可写的固定目录，例如 `D:\Apps\ProxyGateway`。不要直接在压缩包内运行，也不要只复制 EXE。
+
+- 运行环境：Windows 10/11 x64、系统自带 Windows PowerShell 5.1 或 PowerShell 7。
+- 暂不提供 Windows ARM64、Linux 或 macOS 版本。
+- 首次运行没有已启用的接入项或自启动设置；配置会在本机生成。
+
+### 2. 准备两个出口客户端
+
+先确认 SpeedCat 和 Clash Verge **各自能正常代理上网**，然后设置不同的本地端口：
+
+| 设置 | SpeedCat | Clash Verge |
 |---|---|---|
-| 应用统一代理 | `127.0.0.1:17890` | HTTP、HTTP CONNECT、SOCKS5 |
-| 管理页面 | `127.0.0.1:17880` | 设置、状态、事件、恢复 |
-| SpeedCat | `127.0.0.1:17891` | 默认主出口 |
-| Clash Verge | `127.0.0.1:7892` | 默认备用出口 |
-| 内核控制接口 | `127.0.0.1:17881` | 随机令牌保护，仅管理程序使用 |
-| WSL 接入口 | WSL 虚拟网卡 IP 的 `17890` | 只在启用 WSL 接入时监听；仅允许该虚拟子网 |
+| 本地 HTTP / Mixed 端口 | `17891` | `7892` |
+| 客户端连接状态 | 已连接 | 已连接 |
+| 系统代理 | 关闭 | 关闭 |
+| TUN / 虚拟网卡模式 | 关闭 | 关闭 |
+| 系统代理守护（如有） | 关闭 | 关闭 |
 
-两个客户端的系统代理、TUN、代理守护均保持关闭，由网关统一管理 Windows 系统代理。客户端内部的节点选择和分流规则继续生效。不要把客户端自身的上游地址指回网关，否则会形成循环。
+网关不会替你启动或连接这两个客户端。SpeedCat 的连接按钮需要处于“已连接”状态，备用客户端也应保持服务运行。
 
-## 主备策略
+如果客户端使用其他端口或 SOCKS5 协议，可在网关管理页的“出口地址与分流设置”中修改。两个上游必须是不同的本机端口，不能指回网关的 `17880`、`17881` 或 `17890`。
 
-- 默认每轮完成后等待 10 秒再检测，每个出口通过两个 HTTPS 测试地址检测，任一返回 2xx 即为本轮成功；每个请求超时 3 秒。
-- 已知健康的出口连续失败 3 轮才判定不可用；首次启动的未知出口必须先检测成功。
-- 主出口故障且备用健康时，新的连接切到备用。
-- 默认主出口连续健康 60 秒后自动切回；中间一次检测失败会重新计时。
-- 可以选择“保持备用，手动切回”。“现在切回主出口”保留自动故障切换模式；“固定出口”则不使用另一出口兜底。
-- 两个出口均故障时，外网代理请求走 REJECT；本机、私有 IP 和显式直连域名仍按直连规则处理。
-- 不重放业务请求，不迁移已经建立的 TCP 连接。失败的上传、下载、SSH、WebSocket 或流式回答需要应用自行重连。
-- 目前实现 TCP 代理；没有承诺 UDP/QUIC、游戏、全机 TUN 或按任意进程强制接管。
+### 3. 启动网关
 
-## 应用接入与范围
+双击 **`Start-Gateway.cmd`**，它会在后台启动网关并打开管理页：
 
-### 浏览器和 Codex
+- 管理页：<http://127.0.0.1:17880>
+- 统一代理：`127.0.0.1:17890`
 
-Windows 系统代理指向 `127.0.0.1:17890`，适用于遵循该设置的应用。网关中的连接记录可用于核实实际走向。系统代理不是逐个进程的勾选列表，不遵循它的程序应使用自己的代理选项或启动环境。
+也可以在解压目录执行：
 
-Codex 已运行的子进程可能保留旧环境；重新打开终端或重启应用后，新的进程才能继承用户级环境变量。本次没有强制退出用户的 Codex 会话。
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Gateway.ps1 -OpenDashboard
+```
 
-### Git 和终端
+直接双击 `proxy-gateway.exe` 也能后台启动，但不会自动打开浏览器。关闭管理页不会停止网关。
 
-管理页分别设置 Git 的 HTTP 代理和用户级 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY`。HTTPS_PROXY 的值仍为 `http://127.0.0.1:17890`，HTTPS 通过 CONNECT 隧道传输，不是给本地代理启用 TLS。
+### 4. 接入应用
 
-Git SSH 不受 `http.proxy` 控制；已有 SSH 配置未修改。私有 IP 请求在网关中直连。使用私有域名的内网服务，可以将域名后缀加入管理页的直连列表。
+等管理页显示出口可用后，在“应用接入”中启用需要的项目；也可在应用自己的代理选项中手动填写：
 
-### Docker Desktop
+```text
+HTTP / HTTPS 代理：http://127.0.0.1:17890
+SOCKS5 代理：socks5h://127.0.0.1:17890
+```
 
-- Desktop 已使用 Windows 系统代理；镜像拉取由 Desktop 自己的代理层处理。
-- 本次修正了 Desktop 的容器/镜像拉取代理模式为 `system`，并在确认没有运行容器后重启验证。以后在管理页切换 Docker 接入，Desktop 代理模式需要重启 Desktop 才生效；管理页不会自动中断运行中的容器。
-- 管理页的 Docker 开关修改当前用户 `~/.docker/config.json` 中的 `proxies.default`，地址为 `http://host.docker.internal:17890`。保留凭据及其他无关设置。
-- 该配置影响后续构建和新建容器，不改变已经运行的容器。
-- 容器内程序需要支持 HTTP(S)_PROXY。Linux Docker Engine 与 Docker Desktop 的配置机制不同；本项目针对本机 Docker Desktop。
-- Docker 自定义网络或构建器可能需要额外的 host-gateway 映射，应以该构建器中的实际连通性为准。
+`HTTPS_PROXY` 使用 `http://` 是正常的：HTTPS 目标通过 HTTP CONNECT 建立隧道。部分应用的 SOCKS5 输入框需要分别填写主机、端口和“代理解析 DNS”。
 
-### WSL Ubuntu
+### 5. 可选：登录自启动
 
-当前为 NAT 网络模式。启用后，在 Ubuntu 的 `~/.config/local-proxy-gateway/` 中安装环境文件，并在 `.profile`、`.bashrc` 添加可禁用的加载行。通过默认路由自动查找 Windows 地址，不要求修改 `.wslconfig` 或重启 Docker/WSL。
+在管理页启用“登录后启动网关”，之后当前 Windows 用户登录时自动启动。两个出口客户端的自启动和自动连接需要分别设置。启用后请保留解压目录的路径；移动目录前先停用自启动，再在新目录重新启用。
 
-新登录/交互 shell 自动生效。现有 shell 可执行：
+## 默认策略与边界
+
+| 项目 | 默认值 / 行为 |
+|---|---|
+| 主出口 / 备用 | SpeedCat / Clash Verge，可互换 |
+| 检测间隔 | 每轮检测完成后等待 10 秒 |
+| 单个请求超时 | 3 秒 |
+| 故障阈值 | 已知健康出口连续失败 3 轮 |
+| 恢复回切 | 主出口连续健康 60 秒后自动回切 |
+| 检测目标 | `https://www.gstatic.com/generate_204`、`https://cp.cloudflare.com/generate_204`；任一返回 2xx 即成功 |
+| 两个出口都不可用 | 拒绝需要代理的请求，不自动改为直连 |
+| 直连规则 | 本机、私有 IP，以及配置的域名后缀；默认域名仅 `localhost`、`local` |
+
+首次启动时，出口需要检测成功后才会被采用。故障判定时间包含检测耗时，并非固定 30 秒。检测地址应能代表你的实际使用需求，也可在管理页替换。
+
+切换影响**新建连接**。已经建立的下载、上传、WebSocket、SSH 和流式请求可能中断，需要应用自行重连；网关不会自动重放业务请求。固定出口模式不使用另一个出口兜底。
+
+当前面向 TCP 代理，不支持通过网关转发 UDP / QUIC，也不提供全机 TUN 或任意进程的强制代理。
+
+## 各类应用如何接入
+
+| 接入项 | 修改范围 | 生效条件 / 限制 |
+|---|---|---|
+| Windows 系统代理 | 当前用户的 Windows 系统代理 | 适用于遵循系统代理的浏览器和桌面应用；不是所有应用都会使用它 |
+| 终端与子进程 | 用户级 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` | 重新打开终端或应用，且程序本身支持这些变量 |
+| Git HTTPS | 当前用户 Git 的 `http.proxy` | HTTP(S) 仓库生效；Git SSH 需自行配置 |
+| Docker Desktop | Docker CLI 的 `proxies.default` 及 Desktop 代理模式 | 需要已安装并初始化 Docker Desktop，同时启用网关的系统代理接入；修改后重启 Desktop |
+| WSL Ubuntu | Ubuntu 的 shell 环境文件与加载行 | 面向名为 `Ubuntu` 的发行版和 NAT 网络；新 shell 生效 |
+
+浏览器或 Codex 等桌面应用是否走网关，还取决于应用自己的代理选项和环境。系统代理不是“所有没有独立配置的应用一定使用”的强制路由机制。
+
+**Docker：** 新构建和新建容器使用 `host.docker.internal:17890`；已运行容器不自动更新，容器内程序也要支持代理环境变量。网关不会自动重启 Docker Desktop。自定义网络、构建器或 Linux Docker Engine 需要另行验证。
+
+**WSL：** 启用后通过默认路由寻找 Windows 主机，并在 WSL 虚拟网卡建立受子网限制的转发入口；不绑定物理网卡。镜像网络和其他发行版不在当前接入脚本的支持范围内。现有 Ubuntu shell 可执行：
 
 ```sh
 . ~/.config/local-proxy-gateway/env.sh
 ```
 
-停用后重新打开 shell，已有进程的环境不会被强制修改。WSL 接入口仅绑定 WSL 虚拟网卡，不在物理网卡或 Tailscale 网卡监听；网卡地址变化会在下一轮检测时更新。若将来切换镜像网络模式，应重新验证接入地址。
+## 文件、停止与升级
 
-## 恢复
+便携包包含：
 
-管理页可单独“停用并恢复”，或使用“恢复接入设置并停止”。若网关程序无法打开，运行 `Restore-Proxy.ps1` 恢复由接入功能管理的设置。
-
-- `runtime/integrations-state.json`：每项首次启用前的原值；恢复只涉及网关管理的配置项。
-- `backups/20261119-104736/`：实施前的 SpeedCat、Clash Verge、Docker Desktop、Windows 系统代理和 Git 配置备份。
-- 停用 WSL 留下惰性的加载文件，使用标记文件关闭它；不覆盖之后用户对 shell 配置的其他编辑。
-- 恢复接入设置不会把 SpeedCat 端口改回与 Clash 冲突的 7892。如需完全撤销客户端修改，可在客户端退出后按备份恢复；完整文件恢复会同时覆盖后续配置变更。
-
-不要上传 `backups/` 或 `runtime/`：它们可能包含原有客户端配置和本地控制令牌。项目的 `.gitignore` 已排除这些目录。
-
-## 构建与验证
-
-依赖：Windows、Go 1.26、PowerShell、已安装的 Mihomo 内核。优先使用本机 PowerShell 7，兼容脚本需以 UTF-8 BOM 保存才能由 Windows PowerShell 5 正确读取中文。
-
-Git 仓库只保存源码、脚本和文档，不包含本机运行状态、配置备份或编译产物。首次克隆后，需要准备独立内核文件；若本机已安装 Clash Verge，可在项目根目录执行：
-
-```powershell
-New-Item -ItemType Directory -Path runtime -Force
-Copy-Item -LiteralPath 'C:\Program Files\Clash Verge\verge-mihomo.exe' -Destination runtime\mihomo.exe
+```text
+proxy-gateway-vX.Y.Z-windows-amd64/
+├── proxy-gateway.exe           # Go 管理程序，内嵌管理页
+├── Start-Gateway.cmd / .ps1    # 启动入口
+├── Restore-Proxy.cmd / .ps1    # 应急恢复接入设置
+├── scripts/                   # Windows / WSL 接入脚本
+├── runtime/mihomo.exe          # 校验过的官方 Mihomo 内核
+├── licenses/                  # 第三方许可证
+├── release-manifest.json       # 版本、源码提交、依赖来源和文件哈希
+├── README.md
+├── LICENSE
+└── THIRD_PARTY_NOTICES.md
 ```
 
-安装路径不同时，使用实际内核路径。随后构建并运行启动脚本，首次运行会生成本机配置文件。
+运行后才会生成 `config.json`、`runtime/*.json`、日志和内核缓存。Release **不包含发布者的本机配置、日志、状态、备份、订阅或凭据**。需要核对下载完整性时，可将以下结果与 Release 附带的 `SHA256SUMS.txt` 比较：
 
 ```powershell
+Get-FileHash .\proxy-gateway-vX.Y.Z-windows-amd64.zip -Algorithm SHA256
+```
+
+- **正常停止：** 在管理页点击“恢复接入设置并停止”。这也会撤销网关管理的登录自启动；下次需要时重新启用。
+- **应急恢复：** 管理页无法打开时，双击 `Restore-Proxy.cmd`。它恢复此前由此目录中的网关接管的设置，本身不终止进程。恢复需要保留 `runtime/integrations-state.json`，不要提前删除运行目录。
+- **升级：** 在旧版管理页恢复接入设置并停止 → 备份自己的 `config.json` → 将新版解压到新目录 → 复制自己的 `config.json` 到新目录 → 启动并重新启用所需接入项。不要复制旧版的日志、内核临时配置或接入状态到新包。
+
+恢复只涉及网关管理的配置项，不会替你恢复两个代理客户端的端口或 TUN 设置。关闭或卸载前应先恢复接入，避免应用继续指向已停止的网关。
+
+## 常见问题
+
+**启动后没有窗口？**
+
+EXE 在后台运行，界面在浏览器里。使用 `Start-Gateway.cmd` 自动打开管理页。也可手动访问 <http://127.0.0.1:17880>。
+
+**启动失败或管理页打不开？**
+
+确认完整解压且目录可写，检查 `17880`、`17881`、`17890` 是否被其他程序占用。查看 `runtime/gateway.log` 和 `runtime/mihomo.log`；文件缺失时重新解压完整包。一个 Windows 实例只运行一套网关。
+
+**两个出口都显示不可用？**
+
+先分别验证客户端已连接、本地端口与网关设置一致；关闭客户端的系统代理、代理守护和 TUN，再检查 HTTPS 检测地址是否可达。只打开客户端窗口不代表代理已连接。
+
+**开启系统代理后有些应用仍不走网关？**
+
+检查应用是否遵循 Windows 系统代理、是否另有代理设置，或改用终端环境变量和应用自带的代理选项。已有进程可能仍保留旧环境，需要重新启动。
+
+**内核退出后会自动恢复吗？**
+
+管理程序会重启异常退出的 Mihomo，重新检测出口后恢复转发。整个管理程序若异常退出，需要重新启动；“登录自启动”不等于持续的系统服务监控。
+
+## 开发与打包
+
+开发需要 **Windows、Go 1.26+、Git 和 PowerShell 7**。管理页使用原生 HTML/CSS/JavaScript，无前端构建依赖。
+
+```powershell
+git clone https://github.com/AkparAby/proxy-gateway.git
+cd proxy-gateway
 go test ./...
 go vet ./...
-go build -ldflags '-H=windowsgui' -o proxy-gateway.exe .
+pwsh -NoProfile -File .\scripts\package-release.ps1 -Version v0.1.0
 ```
 
-更新正在运行的版本时，先在管理页恢复并停止，再替换程序。不要直接覆盖正在使用的可执行文件。
+打包脚本要求 Git 工作区干净，输出到 `dist/<版本>/`。它按 `scripts/mihomo.lock.json` 下载固定版本内核和对应源码，校验 SHA-256，构建 Windows x64 EXE，再按文件白名单生成 ZIP、源码附件和 `SHA256SUMS.txt`。已存在的版本目录不会被覆盖。
 
-`scripts/verify-failover.mjs` 使用临时 TCP 转发端口 17892/17893，模拟出口可监听但无法联网的故障，验证失败阈值、备用访问、恢复等待、保持备用、手动回切和双出口拒绝。它会暂时修改正在运行的网关配置并在 finally 中恢复，可能打断活跃连接，适合维护时执行。结果保存在 `runtime/failover-results.json`。
+在解压的开发包中运行。修改 Go 或 `web/` 后，可重新构建并替换已停止的管理程序：
 
 ```powershell
-node scripts/verify-failover.mjs
-wsl -d Ubuntu -- sh /mnt/d/code/tools/proxy-gateway/scripts/smoke-wsl.sh
+go build -trimpath -ldflags '-H=windowsgui' -o proxy-gateway.exe .
 ```
 
-管理接口限制 Host、Origin 和写请求令牌。内核异常退出会由管理程序重启，重新检查出口后恢复转发。管理程序本身退出时，用户级登录自启动并不等于持续服务监控；如果整个管理程序异常终止，需要重新运行启动脚本。
+源码仓库不附带内核。若直接运行源码构建的 EXE，需将打包结果中的 `runtime/mihomo.exe` 复制到项目的同名位置，并保持启动与接入脚本完整。
 
-### 本机验收（2026-11-19）
+单元测试覆盖故障阈值、恢复等待、保持备用、双出口失败、回环配置和管理接口校验。`scripts/verify-failover.mjs` 可进一步演练真实主备切换；它需要 Node.js、两个健康出口及运行中的网关，会暂时修改策略并可能中断连接，仅适合在可中断的测试环境执行。
 
-- `go test ./...` 和 `go vet ./...` 通过。
-- 受控故障演练覆盖主备切换、防抖、自动恢复、保持备用、手动回切和双出口失败拒绝，结果见 `runtime/failover-results.json`。
-- HTTP、SOCKS5、WSL、Docker 容器以及 Docker 构建的 HTTPS 检测均返回 204；Docker 镜像拉取和 Git `ls-remote` 成功。
-- 已按本机连接端口关联到 ChatGPT 桌面进程，确认其 OpenAI/ChatGPT 连接经过 `SpeedCat > Gateway`。
-- 终止独立 Mihomo 内核后，管理程序自动启动新内核并恢复健康状态；没有终止两个客户端或当前 Codex 会话来进行该项测试。
-- 管理页的策略保存、状态显示和接入开关状态已核对，截图见 `runtime/dashboard.jpg`。恢复流程已在接入阶段实际执行；随后重新启用了各项接入。
+## 贡献与许可证
 
-## 内核来源
+欢迎提交 [Issue](https://github.com/AkparAby/proxy-gateway/issues) 或 Pull Request。报告问题时请提供版本、Windows 版本、复现步骤和脱敏日志，不要提交订阅、令牌、账号信息、`config.json` 或完整 `runtime/` 目录。
 
-`runtime/mihomo.exe` 复制自本机 Clash Verge 的 `verge-mihomo.exe`，版本 `Mihomo Meta v1.19.33 windows amd64`。独立配置目录确保不覆盖 Clash Verge 的配置。
-
-Mihomo 是 GPL-3.0 项目：<https://github.com/MetaCubeX/mihomo>。如分发本地运行包，需履行内核许可证与对应源代码提供义务；本项目没有下载或转换用户订阅。
-
-技术依据：[Mihomo API](https://wiki.metacubex.one/api/)、[WSL 网络](https://learn.microsoft.com/en-us/windows/wsl/networking)、[Docker Desktop 代理设置](https://docs.docker.com/desktop/settings-and-maintenance/settings/)。
+项目管理程序、页面和脚本采用 [MIT License](LICENSE)。便携包中的独立 [Mihomo](https://github.com/MetaCubeX/mihomo) 内核采用 GPL-3.0，保留其原许可证，并在同一 Release 提供对应版本的源码附件；MIT 许可证不替代第三方许可证。详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
