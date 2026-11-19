@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -89,7 +90,7 @@ func TestOccupiedProxyPortRejectedBeforeMutation(t *testing.T) {
 }
 
 func TestPortChangeCommitAndRollback(t *testing.T) {
-	for _, failure := range []string{"", "bind", "integration", "persist"} {
+	for _, failure := range []string{"", "bind", "integration", "persist", "rollback-bind"} {
 		t.Run(failure, func(t *testing.T) {
 			root := t.TempDir()
 			dir := filepath.Join(root, "runtime")
@@ -131,7 +132,7 @@ func TestPortChangeCommitAndRollback(t *testing.T) {
 						listener.Close()
 						listener = nil
 					}
-					if !(failure == "bind" && active == wanted.ProxyPort) {
+					if !(failure == "bind" && active == wanted.ProxyPort) && !(failure == "rollback-bind" && active == old.ProxyPort) {
 						var err error
 						listener, err = net.Listen("tcp4", proxyAddress(active))
 						if err != nil {
@@ -170,12 +171,15 @@ func TestPortChangeCommitAndRollback(t *testing.T) {
 					t.Fatal("rollback used expired context")
 				}
 				rebound = append(rebound, port)
-				if failure == "integration" && port == wanted.ProxyPort {
+				if (failure == "integration" || failure == "rollback-bind") && port == wanted.ProxyPort {
 					return errors.New("injected integration failure")
 				}
 				return nil
 			}}
 			err := m.saveConfig(context.Background(), wanted)
+			if failure == "rollback-bind" && (err == nil || !strings.Contains(err.Error(), "回退未完成") || !strings.Contains(m.lastError, "回退未完成")) {
+				t.Fatal("failed rollback listener was not reported", err)
+			}
 			if failure == "" {
 				if err != nil || active != wanted.ProxyPort || m.config.ProxyPort != wanted.ProxyPort || m.status()["proxy"] != proxyAddress(wanted.ProxyPort) || selected != "REJECT" {
 					t.Fatal("save failed", err, active, m.config.ProxyPort, selected)

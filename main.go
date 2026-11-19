@@ -183,6 +183,10 @@ func (m *Manager) saveConfig(ctx context.Context, c Config) error {
 		}
 		if err := m.core.reload(restoreCtx); err != nil {
 			failures = append(failures, err)
+		} else if portChanged {
+			if err := m.core.verifyPort(restoreCtx, old.ProxyPort); err != nil {
+				failures = append(failures, err)
+			}
 		}
 		if err := m.core.selectProxy(restoreCtx, oldSelected); err != nil {
 			failures = append(failures, err)
