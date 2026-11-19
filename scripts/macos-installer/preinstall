@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+app="${3%/}/Applications/Proxy Gateway.app"
+# An installer runs as root: never restore user proxy settings or kill user apps here.
+if /bin/ps -axo comm= -ww | /usr/bin/grep -F -x \
+    -e "$app/Contents/MacOS/ProxyGateway" \
+    -e "$app/Contents/Resources/proxy-gateway" \
+    -e "$app/Contents/Resources/mihomo" >/dev/null; then
+    echo 'Proxy Gateway is running. Choose Restore integrations and exit in its window or menu bar, then run this installer again.' >&2
+    exit 1
+fi
+exit 0

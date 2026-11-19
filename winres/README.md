@@ -10,6 +10,10 @@ Go embeds it automatically during a normal Windows amd64 build. The resource
 contains 16, 32, 48, 64 and 256 pixel icon sizes, so running the EXE does not need
 an external icon file.
 
+`installer.ico` contains the same multi-size artwork for the NSIS installer and
+uninstaller. Regenerate it alongside the executable resources when changing
+the application icon.
+
 To regenerate after changing the artwork, run from the repository root:
 
 ```powershell

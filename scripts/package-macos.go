@@ -1,6 +1,6 @@
 //go:build ignore
 
-// Run on an Apple Silicon Mac: go run scripts/package-macos.go -version v0.3.0
+// Run on an Apple Silicon Mac: go run scripts/package-macos.go -version v0.4.1
 package main
 
 import (
@@ -234,9 +234,11 @@ func main() {
 	}))
 	must(zw.Close())
 	must(output.Close())
+	installerPaths := packageInstallers(*version, out, name, stage, app)
 	write(filepath.Join(out, lock.Source.Name), read(sourcePath), 0644)
 	assets, err := filepath.Glob(filepath.Join(out, "*.zip"))
 	must(err)
+	assets = append(assets, installerPaths...)
 	sort.Strings(assets)
 	var checksums strings.Builder
 	for _, asset := range assets {
@@ -244,4 +246,32 @@ func main() {
 	}
 	write(filepath.Join(out, "SHA256SUMS.txt"), []byte(checksums.String()), 0644)
 	fmt.Println("Package:", packagePath)
+}
+
+func packageInstallers(version, out, name, stage, app string) []string {
+	cache := filepath.Join(".release-cache", name+"-installer")
+	payload := filepath.Join(cache, "payload")
+	resources := filepath.Join(cache, "resources")
+	scripts := filepath.Join(cache, "scripts")
+	must(os.MkdirAll(payload, 0755))
+	command("/usr/bin/ditto", app, filepath.Join(payload, "Proxy Gateway.app"))
+	for _, file := range []string{"welcome.html", "conclusion.html"} {
+		write(filepath.Join(resources, file), read(filepath.Join("scripts/macos-installer", file)), 0644)
+	}
+	write(filepath.Join(resources, "LICENSE"), read("LICENSE"), 0644)
+	write(filepath.Join(scripts, "preinstall"), []byte(strings.ReplaceAll(string(read("scripts/macos-installer/preinstall")), "\r\n", "\n")), 0755)
+	numeric := strings.Split(strings.TrimPrefix(version, "v"), "-")[0]
+	distribution := strings.ReplaceAll(string(read("scripts/macos-installer/Distribution.xml")), "@VERSION@", numeric)
+	distPath := filepath.Join(cache, "Distribution.xml")
+	write(distPath, []byte(distribution), 0644)
+	command("/usr/bin/pkgbuild", "--root", payload, "--component-plist", "scripts/macos-installer/component.plist", "--install-location", "/Applications", "--identifier", "io.github.AkparAby.proxy-gateway", "--version", numeric, "--scripts", scripts, filepath.Join(cache, "component.pkg"))
+	pkgPath := filepath.Join(out, name+".pkg")
+	command("/usr/bin/productbuild", "--distribution", distPath, "--package-path", cache, "--resources", resources, pkgPath)
+	// Add the drag-to-Applications link only after the portable ZIP was sealed.
+	must(os.Symlink("/Applications", filepath.Join(stage, "Applications")))
+	dmgPath := filepath.Join(out, name+".dmg")
+	command("/usr/bin/hdiutil", "create", "-volname", "Proxy Gateway", "-srcfolder", stage, "-format", "UDZO", "-fs", "HFS+", dmgPath)
+	command("/usr/bin/hdiutil", "verify", dmgPath)
+	fmt.Println("Installers:", pkgPath, dmgPath)
+	return []string{pkgPath, dmgPath}
 }

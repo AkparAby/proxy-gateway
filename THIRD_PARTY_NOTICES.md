@@ -54,5 +54,12 @@ Windows desktop builds use MinGW-w64 through w64devkit. The MinGW-w64 runtime
 notice is included in `licenses/MinGW-w64-runtime.txt`. The compiler itself
 is a build-time tool and is not bundled with the application.
 
+## NSIS Windows installer
+
+The Windows Setup.exe and generated uninstaller contain the NSIS runtime and
+use its zlib compression module, under the zlib/libpng license. The notice is
+included in `licenses/NSIS-zlib.txt`. The compiler is used only at build time;
+its toolchain provenance is recorded in `scripts/windows-toolchain.json`.
+
 The package does not include SpeedCat, Clash Verge, subscriptions, accounts or
 proxy nodes. Users install and configure their own upstream clients separately.

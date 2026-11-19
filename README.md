@@ -20,7 +20,7 @@ Proxy Gateway 使用 **Go + Fyne 桌面界面、独立 Go 管理程序和 Mihomo
 - **按需接入**：Windows 支持系统代理、终端、Git、Docker 和 WSL；macOS 支持系统代理、Git 和登录自启动。
 - **桌面管理**：概览、代理出口、网关设置、切换策略、应用接入和事件六个页面；中文字体内嵌，无需浏览器或 WebView2。
 - **托盘运行**：关闭窗口继续代理，再次打开唤起已有窗口；从菜单明确恢复接入后退出。
-- **下载即用**：Windows 提供 EXE 便携包；macOS 提供带图标的 `.app`。均附带内核，无需安装 Go、Node.js 或 Python。
+- **安装即用**：Windows 提供 Setup.exe；macOS Apple 芯片版主推 PKG，另提供 DMG 和 ZIP。均附带内核，无需安装 Go、Node.js 或 Python。
 - **可恢复设置**：接入功能保存原值；可逐项停用恢复，或恢复后停止网关。可选当前用户登录自启动。
 
 这是主备故障切换工具，目前不做流量轮询、带宽叠加或已有连接的无缝迁移。
@@ -43,18 +43,22 @@ flowchart LR
 
 ## 快速开始
 
-### 1. 下载并解压
+### 1. 下载安装
 
-在 [Releases](https://github.com/AkparAby/proxy-gateway/releases/latest) 选择对应平台的完整运行包：
+在 [Releases](https://github.com/AkparAby/proxy-gateway/releases/latest) 选择对应平台的安装包：
 
 | 平台 | 下载文件 | 要求 |
 |---|---|---|
-| Windows x64 | `proxy-gateway-vX.Y.Z-windows-amd64.zip` | Windows 10/11，系统自带 PowerShell 5.1 或 PowerShell 7 |
-| macOS Apple 芯片 | `proxy-gateway-vX.Y.Z-macos-arm64.zip` | Apple Silicon（M 系列），macOS 12 或更新版本 |
+| Windows x64（推荐） | `proxy-gateway-vX.Y.Z-windows-amd64-setup.exe` | Windows 10/11，系统自带 Windows PowerShell 5.1 |
+| macOS Apple 芯片（推荐） | `proxy-gateway-vX.Y.Z-macos-arm64.pkg` | Apple Silicon（M 系列），macOS 12 或更新版本 |
+| macOS 拖拽安装 | `proxy-gateway-vX.Y.Z-macos-arm64.dmg` | 打开后将应用拖到旁边的 Applications 文件夹 |
+| Windows / macOS 便携包 | 对应平台的 `.zip` | 完整解压后运行；适合手动管理版本 |
 
-**Windows：** 完整解压到用户可写的固定目录，例如 `D:\Apps\ProxyGateway`。不要在压缩包内运行或只复制 EXE。
+**Windows：** 双击 Setup.exe，默认安装到 `%LOCALAPPDATA%\Programs\Proxy Gateway`，无需管理员权限。安装程序创建开始菜单入口，可选桌面快捷方式，并登记到“设置 → 应用 → 已安装的应用”。安装完成后从开始菜单启动。便携包应完整解压到用户可写的固定目录，例如 `D:\Apps\ProxyGateway`，不要在压缩包内运行或只复制 EXE。
 
-**macOS：** 解压后将 **Proxy Gateway.app** 拖入“应用程序”文件夹，再双击打开。只提供 Apple 芯片版，不提供 Intel 版。应用已做本地 ad-hoc 签名，**没有 Apple Developer ID 签名和公证**；如果首次打开被阻止，确认来源为本仓库 Release 后，按 [Apple 官方说明](https://support.apple.com/en-us/102445) 到“系统设置 → 隐私与安全 → 仍要打开”允许这个应用。不要关闭整个系统的 Gatekeeper。
+**macOS：** 双击 PKG，按向导将 **Proxy Gateway.app** 安装到 `/Applications`（可能需要管理员密码），然后从“应用程序”中打开。偏好拖拽安装时使用 DMG；ZIP 同样可以解压后手动复制 `.app`。只提供 Apple 芯片版，不提供 Intel 版。
+
+**首次打开与签名：** Windows 安装包暂未做 Authenticode 签名。Mac 应用只有本地 ad-hoc 签名，**PKG 未签名，应用和安装包均未做 Apple 公证**；安装包格式不会消除系统的来源验证提示。若安装器或应用被阻止，确认来源为本仓库 Release 并核对校验和，再按 [Apple 官方说明](https://support.apple.com/en-us/102445) 到“系统设置 → 隐私与安全 → 仍要打开”允许这个文件。不要关闭整个系统的 Gatekeeper。Mac 原生窗口目前仍待实体 Mac 验证，详见下方开发与打包说明。
 
 首次运行会在本机生成默认配置，所有接入项和登录自启动默认关闭。网关不会自动接管系统代理。
 
@@ -75,7 +79,7 @@ flowchart LR
 
 ### 3. 启动网关
 
-Windows 双击 **`proxy-gateway.exe`**（也可使用 `Start-Gateway.cmd`）；macOS 双击 **`Proxy Gateway.app`**。程序启动后直接显示 Fyne 桌面管理窗口：
+Windows 从开始菜单打开 **Proxy Gateway**，或双击目录中的 **`proxy-gateway.exe`**（也可使用 `Start-Gateway.cmd`）；macOS 双击 **`Proxy Gateway.app`**。程序启动后直接显示 Fyne 桌面管理窗口：
 
 - 桌面管理：双击程序，或点击托盘 / Mac 菜单栏中的网关图标。
 - 备用浏览器管理页：<http://127.0.0.1:17880>
@@ -198,13 +202,13 @@ proxy-gateway-vX.Y.Z-windows-amd64/
 └── THIRD_PARTY_NOTICES.md
 ```
 
-macOS 包包含 `Proxy Gateway.app`、`Restore-Proxy.command`、README、许可证和发布清单；管理程序、Mihomo 与图标均封装在应用内。**Mac 的配置与日志保存在 `~/Library/Application Support/Proxy Gateway/`**，不写入应用包：
+macOS DMG / ZIP 包含 `Proxy Gateway.app`、`Restore-Proxy.command`、README、许可证和发布清单；PKG 安装 `.app`，管理程序、Mihomo、图标、README 和许可证均封装在应用内。**Mac 的配置与日志保存在 `~/Library/Application Support/Proxy Gateway/`**，不写入应用包：
 
 - `config.json`：你的出口与切换策略。
 - `runtime/`：接入恢复记录、日志和内核临时文件。
 - `~/Library/LaunchAgents/io.github.AkparAby.proxy-gateway.plist`：仅启用登录自启动后创建。
 
-Windows 的配置保存在解压目录。运行后才会生成 `config.json`、`runtime/*.json`、日志和内核缓存。Release **不包含发布者的本机配置、日志、状态、备份、订阅或凭据**。需要核对下载完整性时，可将以下结果与 Release 附带的 `SHA256SUMS.txt` 比较：
+Windows 的配置保存在安装目录或便携版解压目录。运行后才会生成 `config.json`、`runtime/*.json`、日志和内核缓存。Release **不包含发布者的本机配置、日志、状态、备份、订阅或凭据**。需要核对下载完整性时，可将以下结果与 Release 附带的 `SHA256SUMS.txt` 比较：
 
 ```powershell
 Get-FileHash .\proxy-gateway-vX.Y.Z-windows-amd64.zip -Algorithm SHA256
@@ -212,10 +216,13 @@ Get-FileHash .\proxy-gateway-vX.Y.Z-windows-amd64.zip -Algorithm SHA256
 
 - **正常停止：** 在桌面窗口或托盘菜单点击“恢复接入并退出”；备用浏览器页使用“恢复接入设置并停止”。这也会撤销网关管理的登录自启动；下次需要时重新启用。
 - **Windows 应急恢复：** 管理页无法打开时，双击 `Restore-Proxy.cmd`。它恢复此前由此目录中的网关接管的设置，本身不终止进程。恢复需要保留 `runtime/integrations-state.json`，不要提前删除运行目录。
-- **Windows 升级：** 在旧版管理页恢复接入设置并停止 → 备份自己的 `config.json` → 将新版解压到新目录 → 复制自己的 `config.json` 到新目录 → 启动并重新启用所需接入项。不要复制旧版的日志、内核临时配置或接入状态到新包。
+- **Windows 安装版升级：** 运行新版 Setup.exe，使用原安装目录。安装器先恢复该目录网关管理的接入设置并停止其进程，再覆盖程序文件，保留 `config.json` 和日志。恢复失败会中止覆盖；启动新版后重新启用所需接入项。
+- **Windows 卸载：** 在系统“已安装的应用”中卸载，或运行安装目录的 `Uninstall.exe`。卸载先恢复接入设置，再删除程序文件和快捷方式；配置、日志、状态及其他用户文件默认保留，确认不再需要后可手动删除剩余目录。
+- **Windows 便携版迁移：** 在旧版窗口选择“恢复接入并退出” → 备份自己的 `config.json` → 安装新版或解压到新目录 → 仅复制 `config.json` 到新目录 → 启动并重新启用所需接入项。安装器不会自动搬迁其他目录的便携版数据或关闭它们；每台机器只运行一套网关。
 
 - **macOS 应急恢复：** 双击包里的 `Restore-Proxy.command`，或在终端运行 `"/Applications/Proxy Gateway.app/Contents/Resources/proxy-gateway" --restore`。程序运行中也可恢复；恢复本身不终止网关。若网络服务原本没有代理地址，恢复时会关闭该代理，输入框可能仍保留网关地址，不影响直连。
-- **macOS 升级：** 先在管理页恢复接入设置并停止 → 备份用户目录的 `config.json` → 替换应用程序文件夹中的 `Proxy Gateway.app` → 打开并重新启用接入项。已有出口配置会保留。卸载前同样先恢复；需要保留设置时不要删除用户数据目录。
+- **macOS 升级：** 先在桌面窗口或菜单栏选择“恢复接入并退出” → 备份用户目录的 `config.json` → 运行新版 PKG，或从 DMG 替换 `/Applications/Proxy Gateway.app` → 打开并重新启用接入项。PKG 检测到目标应用仍在运行时会中止安装，请完全退出后重试。已有出口配置会保留。
+- **macOS 卸载：** 先“恢复接入并退出”，再将 `/Applications/Proxy Gateway.app` 移到废纸篓。PKG 不提供自动卸载器；用户数据目录默认保留，确认不再需要后可手动删除。
 - **macOS 校验：** `shasum -a 256 proxy-gateway-vX.Y.Z-macos-arm64.zip`，与 Release 的 `SHA256SUMS.txt` 比较。
 
 从 v0.1.x 升级时，程序会自动将原有 SpeedCat / Clash 配置迁移为可编辑的出口列表，保留端口、协议、主出口顺序、固定模式和检测策略，并将原始配置备份到本机 `backups/config-v1-*.json`。备份不进入 Release。迁移后的配置不能直接给旧版读取；回退时请恢复旧配置备份。
@@ -246,7 +253,7 @@ v0.4.0 起默认显示 Fyne 桌面窗口。登录自启动和 `--background` 模
 
 ## 开发与打包
 
-开发需要 **Go 1.26、Git**。桌面界面使用 **Fyne 2.8.2**，由 Go 编写；Windows 还需要 PowerShell 7、MinGW-w64 C 编译器（本项目使用 w64devkit 2.11.0），macOS 需要 Apple 芯片 Mac、Xcode Command Line Tools 和系统打包工具。中文字体已随源码提供。备用浏览器页继续保留原生 HTML/CSS/JavaScript。
+开发需要 **Go 1.26、Git**。桌面界面使用 **Fyne 2.8.2**，由 Go 编写；Windows 还需要 PowerShell 7、MinGW-w64 C 编译器和 NSIS（本项目使用 w64devkit 2.11.0 自带的 GCC 与 NSIS，来源校验见 `scripts/windows-toolchain.json`），macOS 需要 Apple 芯片 Mac、Xcode Command Line Tools 和系统自带的 `pkgbuild`、`productbuild`、`hdiutil`。中文字体已随源码提供。备用浏览器页继续保留原生 HTML/CSS/JavaScript。
 
 ```powershell
 git clone https://github.com/AkparAby/proxy-gateway.git
@@ -254,7 +261,7 @@ cd proxy-gateway
 go test ./...
 go vet ./...
 go test -tags "desktop,ci" ./internal/desktop ./cmd/desktop
-pwsh -NoProfile -File .\scripts\package-release.ps1 -Version v0.4.0
+pwsh -NoProfile -File .\scripts\package-release.ps1 -Version v0.4.1
 ```
 
 macOS 本机构建：
@@ -263,14 +270,16 @@ macOS 本机构建：
 go test -race ./...
 go vet ./...
 CGO_ENABLED=1 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
-go run scripts/package-macos.go -version v0.3.0
+go run scripts/package-macos.go -version v0.4.1
 ```
 
-也可在 GitHub Actions 手动运行 **macOS Apple Silicon** 工作流，输入版本号。工作流在 `macos-15` Apple 芯片运行器上构建、执行 Go 与软件渲染界面测试、解压校验 `.app`，并演练原生后台的 HTTP / SOCKS5 转发、端口修改与多出口故障切换；下载其 `macos-arm64-release` Artifact 中的 ZIP。
+将 `gcc` 和 `makensis.exe` 所在目录加入 PATH；也可以向 Windows 打包脚本传入 `-MakeNSIS <绝对路径>`。安装器使用仓库图标和 zlib 压缩，第三方许可随包提供。
+
+也可在 GitHub Actions 手动运行 **macOS Apple Silicon** 工作流，输入版本号。工作流在 `macos-15` Apple 芯片运行器上构建，执行 Go 与软件渲染界面测试、ZIP 文件哈希校验、DMG 只读挂载与复制检查、PKG 实际安装与升级保留配置检查，再从 `/Applications` 中的应用演练原生后台的 HTTP / SOCKS5 转发、端口修改与多出口故障切换。`macos-arm64-release` Artifact 提供 PKG、DMG、ZIP 和校验和。安装测试只应运行在可丢弃的 CI 环境。
 
 Fyne 桌面窗口需要可用的 OpenGL 图形环境。CI 会先检测系统的加速 NSOpenGL 能力；虚拟机不具备该能力时，明确跳过原生窗口、菜单栏和 Finder 唤起测试，保留后台功能及软件渲染测试，并将结果写入 `macos-validation.json` 测试附件。**此时 CI 通过不代表 Mac 窗口已完成真机验证**，使用 Apple 芯片实体 Mac 仍需验证窗口与菜单栏行为。
 
-打包脚本要求 Git 工作区干净，输出到 `dist/<版本>/`。它按 `scripts/mihomo.lock.json` 下载固定版本内核和对应源码，校验 SHA-256，构建对应平台的可执行文件，按显式文件列表生成 ZIP、源码附件和 `SHA256SUMS.txt`。已有打包目录不会被覆盖；Mac ZIP 保留可执行权限，并做 ad-hoc 签名验证。
+打包脚本要求 Git 工作区干净，输出到 `dist/<版本>/`。它按 `scripts/mihomo.lock.json` 下载固定版本内核和对应源码，校验 SHA-256，构建对应平台的可执行文件，按显式文件列表生成安装包、ZIP、源码附件和 `SHA256SUMS.txt`。已有打包目录不会被覆盖；Mac ZIP 保留可执行权限，并做 ad-hoc 签名验证。Windows 安装器的文件清单来自同一份发布清单；卸载不递归删除用户数据目录。
 
 Windows 在解压的开发包中运行。修改 Go 或 `web/` 后，可重新构建并替换已停止的管理程序：
 

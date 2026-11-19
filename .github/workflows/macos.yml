@@ -5,7 +5,7 @@ on:
       version:
         description: Release version (vX.Y.Z)
         required: true
-        default: v0.4.0
+        default: v0.4.1
   pull_request:
 permissions:
   contents: read
@@ -30,15 +30,17 @@ jobs:
           go test -race ./...
           go vet ./...
           GATEWAY_UI_SCREENSHOT_DIR=../../runtime CGO_ENABLED=1 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
-      - name: Package Apple Silicon app
+      - name: Package Apple Silicon app, PKG and DMG
         run: go run scripts/package-macos.go -version "$RELEASE_VERSION"
-      - name: Test extracted app and real proxy failover
+      - name: Test installers, upgrades and real proxy failover
         run: node scripts/smoke-macos.mjs "$RELEASE_VERSION"
       - uses: actions/upload-artifact@v4
         with:
           name: macos-arm64-release
           path: |
             dist/${{ env.RELEASE_VERSION }}/*.zip
+            dist/${{ env.RELEASE_VERSION }}/*.pkg
+            dist/${{ env.RELEASE_VERSION }}/*.dmg
             dist/${{ env.RELEASE_VERSION }}/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14

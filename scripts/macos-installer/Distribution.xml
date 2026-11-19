@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+  <title>Proxy Gateway</title>
+  <welcome file="welcome.html" mime-type="text/html"/>
+  <license file="LICENSE" mime-type="text/plain"/>
+  <conclusion file="conclusion.html" mime-type="text/html"/>
+  <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
+  <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+  <allowed-os-versions><os-version min="12.0"/></allowed-os-versions>
+  <choices-outline><line choice="default"><line choice="app"/></line></choices-outline>
+  <choice id="default"/>
+  <choice id="app" visible="false"><pkg-ref id="io.github.AkparAby.proxy-gateway"/></choice>
+  <pkg-ref id="io.github.AkparAby.proxy-gateway" version="@VERSION@" onConclusion="none">component.pkg</pkg-ref>
+</installer-gui-script>

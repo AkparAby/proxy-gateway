@@ -10,7 +10,7 @@ if (process.platform !== 'darwin' || process.arch !== 'arm64' || process.env.CI 
 const version = process.argv[2], name = `proxy-gateway-${version}-macos-arm64`;
 const temp = await fs.mkdtemp(path.join(os.tmpdir(),'gateway-smoke-'));
 await exec('/usr/bin/ditto',['-x','-k',path.resolve('dist',version,name+'.zip'),temp]);
-const stage = path.join(temp,name), app = path.join(stage,'Proxy Gateway.app');
+const stage = path.join(temp,name), app = '/Applications/Proxy Gateway.app';
 const manager = path.join(app,'Contents/Resources/proxy-gateway');
 const mihomo = path.join(app,'Contents/Resources/mihomo');
 const data = path.join(os.homedir(),'Library/Application Support/Proxy Gateway');
@@ -29,6 +29,41 @@ try {
     if(createHash('sha256').update(b).digest('hex')!==hash) throw Error('Manifest mismatch: '+file);
     if(/(^|\/)(config\.json|.*\.log|integrations-state\.json|selection\.json)$/.test(file)) throw Error('Local data in archive');
   }
+  const appFiles = Object.entries(manifest.files).filter(([file])=>file.startsWith('Proxy Gateway.app/'));
+  async function verifyApp(directory) {
+    for(const [file,hash] of appFiles) {
+      const b=await fs.readFile(path.join(directory,file.slice('Proxy Gateway.app/'.length)));
+      if(createHash('sha256').update(b).digest('hex')!==hash) throw Error('Installed payload mismatch: '+file);
+    }
+    await exec('/usr/bin/codesign',['--verify','--deep','--strict',directory]);
+  }
+  const dmg=path.resolve('dist',version,name+'.dmg'), pkg=path.resolve('dist',version,name+'.pkg');
+  const mount=path.join(temp,'mounted'); await fs.mkdir(mount);
+  await exec('/usr/bin/hdiutil',['verify',dmg]);
+  await exec('/usr/bin/hdiutil',['attach','-readonly','-nobrowse','-mountpoint',mount,dmg]);
+  try {
+    if(await fs.readlink(path.join(mount,'Applications'))!=='/Applications') throw Error('DMG Applications shortcut missing');
+    const copied=path.join(temp,'drag-copy','Proxy Gateway.app');
+    await exec('/usr/bin/ditto',[path.join(mount,'Proxy Gateway.app'),copied]);
+    await verifyApp(copied);
+  } finally { await exec('/usr/bin/hdiutil',['detach',mount]); }
+  console.log('PASS DMG verification, read-only mount, Applications shortcut and copied app');
+  const expanded=path.join(temp,'expanded-pkg');
+  await exec('/usr/sbin/pkgutil',['--expand',pkg,expanded]);
+  const distribution=await fs.readFile(path.join(expanded,'Distribution'),'utf8');
+  if(!/hostArchitectures="arm64"/.test(distribution)) throw Error('PKG architecture gate missing');
+  await exec('/usr/bin/sudo',['/usr/sbin/installer','-pkg',pkg,'-target','/'],{timeout:120000});
+  await verifyApp(app);
+  const receipt=(await exec('/usr/sbin/pkgutil',['--pkg-info','io.github.AkparAby.proxy-gateway'])).stdout;
+  if(!receipt.split('\n').includes('version: '+version.replace(/^v/,'').split('-')[0])) throw Error('PKG receipt version mismatch');
+  // Install again with an existing user configuration: neither install may overwrite it.
+  await fs.mkdir(data,{recursive:true});
+  const preserved=JSON.stringify({schemaVersion:2,proxyPort:17890});
+  await fs.writeFile(path.join(data,'config.json'),preserved);
+  await exec('/usr/bin/sudo',['/usr/sbin/installer','-pkg',pkg,'-target','/'],{timeout:120000});
+  if(await fs.readFile(path.join(data,'config.json'),'utf8')!==preserved) throw Error('PKG upgrade overwrote user settings');
+  await verifyApp(app);
+  console.log('PASS PKG installation into /Applications, receipt, upgrade and settings preservation');
   for(const file of [manager,mihomo,path.join(app,'Contents/MacOS/ProxyGateway'),path.join(stage,'Restore-Proxy.command')]) {
     if(!((await fs.stat(file)).mode & 0o111)) throw Error('Executable bit lost: '+file);
   }
@@ -41,7 +76,7 @@ try {
   await exec('/usr/bin/xcrun',['clang',probeSource,'-framework','AppKit','-framework','OpenGL','-o',probe]);
   const nativeGUI=(await exec(probe,[])).stdout.trim()==='available';
   await fs.mkdir('runtime',{recursive:true});
-  const report={version,nativeGUI:nativeGUI?'pending':'skipped',reason:nativeGUI?'':'Runner has no accelerated NSOpenGL pixel format',backend:'pending'};
+  const report={version,installers:{pkg:'passed',dmg:'passed',upgrade:'passed'},nativeGUI:nativeGUI?'pending':'skipped',reason:nativeGUI?'':'Runner has no accelerated NSOpenGL pixel format',backend:'pending'};
   await fs.writeFile('runtime/macos-validation.json',JSON.stringify(report,null,2));
   for(const port of [17891,7892]) {
     const dir=path.join(temp,String(port)); await fs.mkdir(dir);
@@ -63,6 +98,13 @@ try {
   }
   await waitFor(async()=>{const s=await status();token=s.token;return s.platform==='darwin'&&s.version===version&&s.config.outbounds.every(o=>s.health[o.id]?.available)},'native backend, default data path and two healthy upstreams');
   const s=await status();
+  // The installer must refuse to overwrite a running installed gateway.
+  let refused=false;
+  try { await exec('/usr/bin/sudo',['/usr/sbin/installer','-pkg',pkg,'-target','/'],{timeout:120000}); }
+  catch { refused=true; }
+  if(!refused) throw Error('PKG replaced a running gateway');
+  await verifyApp(app);
+  console.log('PASS PKG refuses upgrades while the installed gateway is running');
   if(JSON.stringify(s.integrationOptions.map(x=>x[0]))!==JSON.stringify(['system','git','autostart'])) throw Error('Wrong Mac integration options');
   await fs.access(path.join(data,'config.json'));
   const pid = async()=>(await exec('/usr/sbin/lsof',['-t','-iTCP:17880','-sTCP:LISTEN'])).stdout.trim();

@@ -1,0 +1,7 @@
+{
+  "name": "w64devkit-x64-2.11.0.7z.exe",
+  "url": "https://github.com/skeeto/w64devkit/releases/download/v2.11.0/w64devkit-x64-2.11.0.7z.exe",
+  "sha256": "54c2bb9962e8a30c8270e34c5efc3d5fee579f53087fa7d435b95fbba2af7b2b",
+  "nsisVersion": "v29-Oct-2026.cvs",
+  "notes": "Portable build tools. Add the extracted bin directory to PATH for gcc and makensis; no runtime installation is required. NSIS uses its amd64 Unicode runtime and zlib compression."
+}

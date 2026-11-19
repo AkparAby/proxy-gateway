@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory)]
     [ValidatePattern('^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$')]
-    [string]$Version
+    [string]$Version,
+    [string]$MakeNSIS = 'makensis.exe'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -57,7 +58,7 @@ try {
     $payload = @(
         'Start-Gateway.cmd', 'Start-Gateway.ps1', 'Restore-Proxy.cmd', 'Restore-Proxy.ps1',
         'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
-        'scripts/integrations.ps1', 'scripts/wsl-integration.sh'
+        'scripts/integrations.ps1', 'scripts/wsl-integration.sh', 'scripts/installer-maintenance.ps1'
     )
     foreach ($file in $payload) {
         Copy-Item -LiteralPath (Join-Path $root $file) -Destination (Join-Path $stage $file)
@@ -88,6 +89,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Dependency license collection failed.' }
     Copy-Item -LiteralPath (Join-Path $root 'assets\NotoSansSC-OFL.txt') -Destination (Join-Path $stage 'licenses\NotoSansSC-OFL.txt')
     Copy-Item -LiteralPath (Join-Path $root 'assets\MinGW-w64-runtime.txt') -Destination (Join-Path $stage 'licenses\MinGW-w64-runtime.txt')
+    Copy-Item -LiteralPath (Join-Path $root 'assets\NSIS-zlib.txt') -Destination (Join-Path $stage 'licenses\NSIS-zlib.txt')
 
     $fileHashes = [ordered]@{}
     Get-ChildItem -LiteralPath $stage -File -Recurse | Sort-Object FullName | ForEach-Object {
@@ -101,6 +103,7 @@ try {
         platform = 'windows/amd64/v1'
         builtAtUtc = [DateTime]::UtcNow.ToString('o')
         go = $goVersion
+        installerCompiler = (& $MakeNSIS /VERSION | Out-String).Trim()
         mihomo = [ordered]@{
             version = $lock.version; commit = $lock.commit
             binaryUrl = $lock.binary.url; binaryArchiveSha256 = $lock.binary.sha256
@@ -113,7 +116,7 @@ try {
     $package = Join-Path $out "$name.zip"
     [IO.Compression.ZipFile]::CreateFromDirectory($stage, $package, [IO.Compression.CompressionLevel]::Optimal, $true)
 
-    $expected = @($payload) + @('proxy-gateway.exe', 'runtime/gateway-manager.exe', 'licenses/Go-dependencies.txt', 'licenses/NotoSansSC-OFL.txt', 'licenses/MinGW-w64-runtime.txt', 'runtime/mihomo.exe', 'licenses/Mihomo-GPL-3.0.txt', 'licenses/Go-BSD.txt', 'release-manifest.json')
+    $expected = @($payload) + @('proxy-gateway.exe', 'runtime/gateway-manager.exe', 'licenses/Go-dependencies.txt', 'licenses/NotoSansSC-OFL.txt', 'licenses/MinGW-w64-runtime.txt', 'licenses/NSIS-zlib.txt', 'runtime/mihomo.exe', 'licenses/Mihomo-GPL-3.0.txt', 'licenses/Go-BSD.txt', 'release-manifest.json')
     $zip = [IO.Compression.ZipFile]::OpenRead($package)
     try {
         $actual = @($zip.Entries | Where-Object { $_.Name } | ForEach-Object {
@@ -123,9 +126,11 @@ try {
         })
         if (Compare-Object ($expected | Sort-Object) ($actual | Sort-Object)) { throw 'Package allowlist validation failed.' }
     } finally { $zip.Dispose() }
+    $installer = Join-Path $out "$name-setup.exe"
+    & (Join-Path $PSScriptRoot 'package-windows-installer.ps1') -Stage $stage -Output $installer -MakeNSIS $MakeNSIS
     $sourceAsset = Join-Path $out $lock.source.name
     Copy-Item -LiteralPath $sourceZip -Destination $sourceAsset
-    $checksums = foreach ($asset in @($package, $sourceAsset)) {
+    $checksums = foreach ($asset in @($package, $installer, $sourceAsset)) {
         '{0}  {1}' -f (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant(), [IO.Path]::GetFileName($asset)
     }
     [IO.File]::WriteAllText((Join-Path $out 'SHA256SUMS.txt'), ($checksums -join "`n") + "`n", $utf8)
