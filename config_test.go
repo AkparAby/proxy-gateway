@@ -29,6 +29,7 @@ func TestGenericConfigValidation(t *testing.T) {
 		"long name":           func(c *Config) { c.Outbounds[0].Name = strings.Repeat("名", 61) },
 		"canonical duplicate": func(c *Config) { c.Outbounds[1].Host = "::ffff:127.0.0.1"; c.Outbounds[1].Port = c.Outbounds[0].Port },
 		"remote host":         func(c *Config) { c.Outbounds[0].Host = "192.168.1.2" },
+		"desktop port":        func(c *Config) { c.Outbounds[0].Port = 17882 },
 		"missing fixed":       func(c *Config) { c.Mode = "deleted" },
 		"future schema":       func(c *Config) { c.SchemaVersion = 3 },
 	} {

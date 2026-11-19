@@ -195,7 +195,12 @@ func (m macIntegrator) apply(ctx context.Context, name string, enabled bool, s *
 			if err := os.MkdirAll(filepath.Dir(m.agentPath()), 0700); err != nil {
 				return err
 			}
-			return atomicFile(m.agentPath(), []byte(agentPlist(m.executable, m.root)), 0600)
+			executable := m.executable
+			desktop := filepath.Join(filepath.Dir(executable), "..", "MacOS", "ProxyGateway")
+			if info, err := os.Stat(desktop); err == nil && info.Mode().IsRegular() {
+				executable = desktop
+			}
+			return atomicFile(m.agentPath(), []byte(agentPlist(executable, m.root)), 0600)
 		}
 		if s.AgentExisted {
 			return atomicFile(m.agentPath(), s.AgentOriginal, 0600)

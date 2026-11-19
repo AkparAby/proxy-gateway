@@ -78,8 +78,16 @@ try {
         $oldEnv[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
     }
     $env:GOOS = 'windows'; $env:GOARCH = 'amd64'; $env:GOAMD64 = 'v1'; $env:CGO_ENABLED = '0'
-    & go build -trimpath -buildvcs=false -ldflags "-H=windowsgui -s -w -X main.version=$Version -X main.commit=$commit" -o (Join-Path $stage 'proxy-gateway.exe') .
+    & go build -trimpath -buildvcs=false -ldflags "-H=windowsgui -s -w -X main.version=$Version -X main.commit=$commit" -o (Join-Path $stage 'runtime\gateway-manager.exe') .
     if ($LASTEXITCODE -ne 0) { throw 'Go build failed.' }
+
+    $env:CGO_ENABLED = '1'
+    & go build -tags desktop -trimpath -buildvcs=false -ldflags "-H=windowsgui -s -w -extldflags=-static -X main.version=$Version -X main.commit=$commit" -o (Join-Path $stage 'proxy-gateway.exe') ./cmd/desktop
+    if ($LASTEXITCODE -ne 0) { throw 'Fyne desktop build failed. A MinGW-w64 C compiler is required.' }
+    & go run scripts/collect-go-licenses.go (Join-Path $stage 'licenses\Go-dependencies.txt')
+    if ($LASTEXITCODE -ne 0) { throw 'Dependency license collection failed.' }
+    Copy-Item -LiteralPath (Join-Path $root 'assets\NotoSansSC-OFL.txt') -Destination (Join-Path $stage 'licenses\NotoSansSC-OFL.txt')
+    Copy-Item -LiteralPath (Join-Path $root 'assets\MinGW-w64-runtime.txt') -Destination (Join-Path $stage 'licenses\MinGW-w64-runtime.txt')
 
     $fileHashes = [ordered]@{}
     Get-ChildItem -LiteralPath $stage -File -Recurse | Sort-Object FullName | ForEach-Object {
@@ -105,7 +113,7 @@ try {
     $package = Join-Path $out "$name.zip"
     [IO.Compression.ZipFile]::CreateFromDirectory($stage, $package, [IO.Compression.CompressionLevel]::Optimal, $true)
 
-    $expected = @($payload) + @('proxy-gateway.exe', 'runtime/mihomo.exe', 'licenses/Mihomo-GPL-3.0.txt', 'licenses/Go-BSD.txt', 'release-manifest.json')
+    $expected = @($payload) + @('proxy-gateway.exe', 'runtime/gateway-manager.exe', 'licenses/Go-dependencies.txt', 'licenses/NotoSansSC-OFL.txt', 'licenses/MinGW-w64-runtime.txt', 'runtime/mihomo.exe', 'licenses/Mihomo-GPL-3.0.txt', 'licenses/Go-BSD.txt', 'release-manifest.json')
     $zip = [IO.Compression.ZipFile]::OpenRead($package)
     try {
         $actual = @($zip.Entries | Where-Object { $_.Name } | ForEach-Object {

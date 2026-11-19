@@ -385,7 +385,7 @@ func run() error {
 	if e != nil {
 		return e
 	}
-	defer lf.Close()
+	defer func() { log.SetOutput(os.Stderr); lf.Close() }()
 	log.SetOutput(lf)
 	conf, e := readConfig(filepath.Join(root, "config.json"))
 	if e != nil {

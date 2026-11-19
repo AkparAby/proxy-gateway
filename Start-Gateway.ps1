@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $dashboard = 'http://127.0.0.1:17880'
 $exe = Join-Path $PSScriptRoot 'proxy-gateway.exe'
 $core = Join-Path $PSScriptRoot 'runtime\mihomo.exe'
+$manager = Join-Path $PSScriptRoot 'runtime\gateway-manager.exe'
 
 function Get-GatewayStatus {
     try {
@@ -15,7 +16,7 @@ function Get-GatewayStatus {
 try {
     $status = Get-GatewayStatus
     if (-not $status) {
-        foreach ($file in @($exe, $core)) {
+        foreach ($file in @($exe, $core, $manager)) {
             if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
                 throw "Missing file: $file. Extract the complete release ZIP first."
             }
@@ -35,7 +36,8 @@ try {
     }
     Write-Output "Dashboard: $dashboard"
     Write-Output 'HTTP / SOCKS5 proxy: 127.0.0.1:17890'
-    if ($OpenDashboard) { Start-Process $dashboard }
+    if ($OpenDashboard) { Start-Process -FilePath $exe -WorkingDirectory $PSScriptRoot }
+    elseif ($status) { Start-Process -FilePath $exe -ArgumentList '--background' -WindowStyle Hidden }
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)
     exit 1

@@ -123,7 +123,7 @@ func (c Config) validate() error {
 		names[strings.ToLower(name)] = true
 		e := o.Endpoint
 		ip := net.ParseIP(e.Host)
-		if ip == nil || !ip.IsLoopback() || (e.Type != "http" && e.Type != "socks5") || e.Port < 1 || e.Port > 65535 || e.Port == 17890 || e.Port == 17880 || e.Port == 17881 {
+		if ip == nil || !ip.IsLoopback() || (e.Type != "http" && e.Type != "socks5") || e.Port < 1 || e.Port > 65535 || e.Port == 17890 || e.Port == 17880 || e.Port == 17881 || e.Port == 17882 {
 			return errors.New("出口必须使用独立的本地 HTTP/SOCKS5 端口")
 		}
 		address := net.JoinHostPort(ip.String(), fmt.Sprint(e.Port))

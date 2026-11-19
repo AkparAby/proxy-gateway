@@ -109,9 +109,9 @@ func main() {
 	must(gz.Close())
 	must(f.Close())
 	write(filepath.Join(resources, "mihomo"), b, 0755)
-	for _, build := range [][2]string{{filepath.Join(resources, "proxy-gateway"), "."}, {filepath.Join(macos, "ProxyGateway"), "./cmd/macos-launcher"}} {
-		c := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags", "-s -w -X main.version="+*version+" -X main.commit="+commit, "-o", build[0], build[1])
-		c.Env = append(os.Environ(), "GOOS=darwin", "GOARCH=arm64", "CGO_ENABLED=0", "GOARM64=v8.0")
+	for _, build := range [][2]string{{filepath.Join(resources, "proxy-gateway"), "."}, {filepath.Join(macos, "ProxyGateway"), "./cmd/desktop"}} {
+		c := exec.Command("go", "build", "-tags", "desktop", "-trimpath", "-buildvcs=false", "-ldflags", "-s -w -X main.version="+*version+" -X main.commit="+commit, "-o", build[0], build[1])
+		c.Env = append(os.Environ(), "GOOS=darwin", "GOARCH=arm64", "CGO_ENABLED=1", "MACOSX_DEPLOYMENT_TARGET=12.0", "GOARM64=v8.0")
 		if b, err := c.CombinedOutput(); err != nil {
 			panic(fmt.Sprintf("build: %s: %v", b, err))
 		}
@@ -170,6 +170,8 @@ func main() {
 		panic("Mihomo license missing")
 	}
 	write(filepath.Join(resources, "licenses", "Go-BSD.txt"), read(filepath.Join(command("go", "env", "GOROOT"), "LICENSE")), 0644)
+	command("go", "run", "scripts/collect-go-licenses.go", filepath.Join(resources, "licenses", "Go-dependencies.txt"))
+	write(filepath.Join(resources, "licenses", "NotoSansSC-OFL.txt"), read("assets/NotoSansSC-OFL.txt"), 0644)
 	// Ad-hoc signing supplies a valid bundle seal; this is NOT Developer ID
 	// signing or notarization and still requires Gatekeeper user approval.
 	for _, path := range []string{filepath.Join(resources, "mihomo"), filepath.Join(resources, "proxy-gateway"), app} {

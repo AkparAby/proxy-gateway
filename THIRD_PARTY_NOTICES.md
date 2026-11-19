@@ -33,5 +33,26 @@ library. Copyright belongs to The Go Authors. The Go BSD-style license is
 included in `licenses/Go-BSD.txt` on Windows and
 `Proxy Gateway.app/Contents/Resources/licenses/Go-BSD.txt` on macOS.
 
+## Fyne desktop and other Go modules
+
+The desktop UI uses `fyne.io/fyne/v2` version `v2.8.2` and its Go dependencies.
+Fyne's BSD-3-Clause license and the license/copyright notices collected from
+the linked dependency modules are included in `licenses/Go-dependencies.txt`
+(inside `Contents/Resources/` for macOS). The exact dependency versions and
+checksums are pinned in `go.mod` and `go.sum`.
+
+## Noto Sans CJK SC
+
+The desktop embeds the unmodified Noto Sans CJK SC Regular font for Chinese
+text. It is distributed under the SIL Open Font License 1.1, included in
+`licenses/NotoSansSC-OFL.txt`. Its official source URL, commit and SHA-256 are
+recorded in `assets/font-source.json` in this repository.
+
+## Windows graphics toolchain
+
+Windows desktop builds use MinGW-w64 through w64devkit. The MinGW-w64 runtime
+notice is included in `licenses/MinGW-w64-runtime.txt`. The compiler itself
+is a build-time tool and is not bundled with the application.
+
 The package does not include SpeedCat, Clash Verge, subscriptions, accounts or
 proxy nodes. Users install and configure their own upstream clients separately.

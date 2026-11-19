@@ -7,7 +7,7 @@
 [![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)](https://github.com/AkparAby/proxy-gateway/releases/latest)
 [![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple_Silicon-333333)](https://github.com/AkparAby/proxy-gateway/releases/latest)
 
-Proxy Gateway 使用 **Go 管理程序 + 独立 Mihomo 内核**，提供中文 Web 管理页。支持添加 1–16 个本机 HTTP / SOCKS5 代理出口，自定义名称并调整优先级。应用始终连接同一地址，网关负责检测出口、故障切换和恢复回切。
+Proxy Gateway 使用 **Go + Fyne 桌面界面、独立 Go 管理程序和 Mihomo 内核**。双击程序即可打开中文桌面窗口，并在系统托盘常驻；浏览器管理页作为备用入口保留。支持添加 1–16 个本机 HTTP / SOCKS5 代理出口，自定义名称并调整优先级。应用始终连接同一地址，网关负责检测出口、故障切换和恢复回切。
 
 [下载 Windows / macOS 版](https://github.com/AkparAby/proxy-gateway/releases/latest) · [报告问题](https://github.com/AkparAby/proxy-gateway/issues) · [许可证说明](THIRD_PARTY_NOTICES.md)
 
@@ -18,6 +18,8 @@ Proxy Gateway 使用 **Go 管理程序 + 独立 Mihomo 内核**，提供中文 W
 - **自动故障切换**：通过每个出口实际访问 HTTPS 地址，连续失败后按优先级选择健康备用，减少偶发波动导致的切换。
 - **可选回切策略**：更高优先级出口稳定恢复后自动切回，或保持当前出口、手动切回首选；也支持固定任一出口。
 - **按需接入**：Windows 支持系统代理、终端、Git、Docker 和 WSL；macOS 支持系统代理、Git 和登录自启动。
+- **桌面管理**：概览、代理出口、切换策略、应用接入和事件五个页面；中文字体内嵌，无需浏览器或 WebView2。
+- **托盘运行**：关闭窗口继续代理，再次打开唤起已有窗口；从菜单明确恢复接入后退出。
 - **下载即用**：Windows 提供 EXE 便携包；macOS 提供带图标的 `.app`。均附带内核，无需安装 Go、Node.js 或 Python。
 - **可恢复设置**：接入功能保存原值；可逐项停用恢复，或恢复后停止网关。可选当前用户登录自启动。
 
@@ -69,13 +71,14 @@ flowchart LR
 
 这些名称和端口不绑定任何软件。你可以重命名、修改协议和端口，删除不需要的出口，或点击“添加代理应用”增加更多。支持 1–16 个出口，所有出口均需使用本机回环 IP（例如 `127.0.0.1`、`::1`），上游暂不支持账号密码认证。
 
-网关不会替你启动或连接客户端。例如使用 SpeedCat 时仍需处于“已连接”状态，使用其他客户端时也需要保持其代理服务运行。客户端上游不能指回网关的 `17880`、`17881` 或 `17890`，否则会形成循环。
+网关不会替你启动或连接客户端。例如使用 SpeedCat 时仍需处于“已连接”状态，使用其他客户端时也需要保持其代理服务运行。客户端上游不能指回网关的 `17880`、`17881`、`17882` 或 `17890`，否则会形成循环。
 
 ### 3. 启动网关
 
-Windows 双击 **`proxy-gateway.exe`**（也可使用 `Start-Gateway.cmd`）；macOS 双击 **`Proxy Gateway.app`**。程序启动后会自动打开默认浏览器中的管理页：
+Windows 双击 **`proxy-gateway.exe`**（也可使用 `Start-Gateway.cmd`）；macOS 双击 **`Proxy Gateway.app`**。程序启动后直接显示 Fyne 桌面管理窗口：
 
-- 管理页：<http://127.0.0.1:17880>
+- 桌面管理：双击程序，或点击托盘 / Mac 菜单栏中的网关图标。
+- 备用浏览器管理页：<http://127.0.0.1:17880>
 - 统一代理：`127.0.0.1:17890`
 
 Windows 也可以在解压目录执行：
@@ -84,7 +87,7 @@ Windows 也可以在解压目录执行：
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Gateway.ps1 -OpenDashboard
 ```
 
-网关已运行时再次双击 EXE 或 `.app`，会打开现有管理页，不会重复启动内核。两种版本都内嵌网关图标。macOS 不常驻 Dock 图标；关闭管理页不会停止后台网关，退出请使用管理页底部的“恢复接入设置并停止”。
+再次双击 EXE 或 `.app`，会唤起已有桌面窗口，不重复启动界面和内核。两种版本都内嵌网关图标。Windows 使用系统托盘，macOS 使用顶部菜单栏图标。**窗口的 × 只隐藏界面，代理继续工作。** 真正退出请使用窗口或托盘菜单的“恢复接入并退出”；恢复失败时会保留客户端并显示原因。
 
 需要静默启动时使用：
 
@@ -95,12 +98,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Gateway.ps1 -Ope
 macOS 在终端静默启动（应用放在默认安装位置时）：
 
 ```sh
-"/Applications/Proxy Gateway.app/Contents/Resources/proxy-gateway" --background
+"/Applications/Proxy Gateway.app/Contents/MacOS/ProxyGateway" --background
 ```
 
 ### 4. 添加出口、调整优先级并接入应用
 
-在“代理出口与切换策略”中设置各客户端的名称、协议、地址和端口。使用“上移 / 下移”调整优先级，**列表第一个是首选出口**。点击“保存出口与策略”后重新检测，并按新配置选择出口。删除固定模式使用的出口时，界面会将模式改为自动，保存后生效。
+在桌面的“代理出口”页设置各客户端的名称、协议、地址和端口，在“切换策略”页设置自动回切、固定出口和检测参数。使用“上移 / 下移”调整优先级，**列表第一个是首选出口**。点击“保存全部设置”后重新检测，并按新配置选择出口。删除固定模式使用的出口时，界面会将模式改为自动，保存后生效。
 
 等管理页显示出口可用后，在“应用接入”中启用需要的项目；也可在应用自己的代理选项中手动填写：
 
@@ -113,7 +116,7 @@ SOCKS5 代理：socks5h://127.0.0.1:17890
 
 ### 5. 可选：登录自启动
 
-在管理页启用“登录后启动网关”，之后当前系统用户登录时在后台自动启动，不弹出浏览器。各出口客户端的自启动和自动连接需要分别设置。Windows 使用当前用户的登录启动项；macOS 使用用户级 LaunchAgent，下次登录时生效。启用后请保留程序路径；移动目录或应用前先停用自启动，再在新位置重新启用。macOS 如提示后台项目被禁用，请在系统的登录项设置中允许 Proxy Gateway。
+在“应用接入”中启用“登录后启动网关”，之后当前系统用户登录时在后台自动启动并显示托盘图标，不弹出管理窗口。各出口客户端的自启动和自动连接需要分别设置。Windows 使用当前用户的登录启动项；macOS 使用用户级 LaunchAgent，下次登录时生效。启用后请保留程序路径；移动目录或应用前先停用自启动，再在新位置重新启用。macOS 如提示后台项目被禁用，请在系统的登录项设置中允许 Proxy Gateway。
 
 ## 默认策略与边界
 
@@ -174,7 +177,8 @@ Windows 便携包包含：
 
 ```text
 proxy-gateway-vX.Y.Z-windows-amd64/
-├── proxy-gateway.exe           # Go 管理程序，内嵌管理页
+├── proxy-gateway.exe           # Fyne 桌面程序（默认打开窗口）
+├── runtime/gateway-manager.exe # Go 后台管理程序，内嵌备用管理页
 ├── Start-Gateway.cmd / .ps1    # 启动入口
 ├── Restore-Proxy.cmd / .ps1    # 应急恢复接入设置
 ├── scripts/                   # Windows / WSL 接入脚本
@@ -198,7 +202,7 @@ Windows 的配置保存在解压目录。运行后才会生成 `config.json`、`
 Get-FileHash .\proxy-gateway-vX.Y.Z-windows-amd64.zip -Algorithm SHA256
 ```
 
-- **正常停止：** 在管理页点击“恢复接入设置并停止”。这也会撤销网关管理的登录自启动；下次需要时重新启用。
+- **正常停止：** 在桌面窗口或托盘菜单点击“恢复接入并退出”；备用浏览器页使用“恢复接入设置并停止”。这也会撤销网关管理的登录自启动；下次需要时重新启用。
 - **Windows 应急恢复：** 管理页无法打开时，双击 `Restore-Proxy.cmd`。它恢复此前由此目录中的网关接管的设置，本身不终止进程。恢复需要保留 `runtime/integrations-state.json`，不要提前删除运行目录。
 - **Windows 升级：** 在旧版管理页恢复接入设置并停止 → 备份自己的 `config.json` → 将新版解压到新目录 → 复制自己的 `config.json` 到新目录 → 启动并重新启用所需接入项。不要复制旧版的日志、内核临时配置或接入状态到新包。
 
@@ -214,11 +218,11 @@ Get-FileHash .\proxy-gateway-vX.Y.Z-windows-amd64.zip -Algorithm SHA256
 
 **启动后没有窗口？**
 
-管理程序没有独立桌面窗口，界面在默认浏览器里。双击 EXE、`Start-Gateway.cmd` 或 Mac 的 `.app` 会自动打开管理页；登录自启动和 `--background` 模式不弹浏览器。也可手动访问 <http://127.0.0.1:17880>。
+v0.4.0 起默认显示 Fyne 桌面窗口。登录自启动和 `--background` 模式仅显示托盘 / 菜单栏图标，点击该图标的“打开管理窗口”即可；再次双击程序也会唤起窗口。后台未连接时可点击“启动网关”。备用管理页仍为 <http://127.0.0.1:17880>。
 
 **启动失败或管理页打不开？**
 
-确认完整解压且目录可写，检查 `17880`、`17881`、`17890` 是否被其他程序占用。查看 `runtime/gateway.log` 和 `runtime/mihomo.log`；文件缺失时重新解压完整包。每台机器只运行一套网关。Mac 的日志在上述用户数据目录中，另有 `runtime/launcher.log`。
+确认完整解压且目录可写，检查 `17880`、`17881`、`17882`、`17890` 是否被其他程序占用。查看 `runtime/gateway.log` 和 `runtime/mihomo.log`；文件缺失时重新解压完整包。每台机器只运行一套网关。Mac 的日志在上述用户数据目录中，另有 `runtime/desktop.log`。
 
 **所有出口都显示不可用？**
 
@@ -234,14 +238,15 @@ Get-FileHash .\proxy-gateway-vX.Y.Z-windows-amd64.zip -Algorithm SHA256
 
 ## 开发与打包
 
-开发需要 **Go 1.26、Git**；Windows 打包需要 PowerShell 7；macOS 打包需要 Apple 芯片 Mac 和系统的 `sips` / `iconutil` / `codesign` 工具。管理页使用原生 HTML/CSS/JavaScript，无前端构建依赖。
+开发需要 **Go 1.26、Git**。桌面界面使用 **Fyne 2.8.2**，由 Go 编写；Windows 还需要 PowerShell 7、MinGW-w64 C 编译器（本项目使用 w64devkit 2.11.0），macOS 需要 Apple 芯片 Mac、Xcode Command Line Tools 和系统打包工具。中文字体已随源码提供。备用浏览器页继续保留原生 HTML/CSS/JavaScript。
 
 ```powershell
 git clone https://github.com/AkparAby/proxy-gateway.git
 cd proxy-gateway
 go test ./...
 go vet ./...
-pwsh -NoProfile -File .\scripts\package-release.ps1 -Version v0.3.0
+go test -tags "desktop,ci" ./internal/desktop ./cmd/desktop
+pwsh -NoProfile -File .\scripts\package-release.ps1 -Version v0.4.0
 ```
 
 macOS 本机构建：
@@ -249,6 +254,7 @@ macOS 本机构建：
 ```sh
 go test -race ./...
 go vet ./...
+CGO_ENABLED=0 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
 go run scripts/package-macos.go -version v0.3.0
 ```
 
@@ -259,12 +265,20 @@ go run scripts/package-macos.go -version v0.3.0
 Windows 在解压的开发包中运行。修改 Go 或 `web/` 后，可重新构建并替换已停止的管理程序：
 
 ```powershell
-go build -trimpath -ldflags '-H=windowsgui' -o proxy-gateway.exe .
+go build -trimpath -ldflags '-H=windowsgui' -o runtime/gateway-manager.exe .
+$env:CGO_ENABLED = "1"
+go build -tags desktop -trimpath -ldflags '-H=windowsgui -extldflags=-static' -o proxy-gateway.exe ./cmd/desktop
 ```
 
-Windows 图标资源 `rsrc_windows_amd64.syso` 已包含在源码仓库中，普通 `go build` 会自动嵌入；更换图标时参见 [图标源文件与生成说明](winres/README.md)。
+Windows 后台和桌面程序的 `.syso` 图标资源均已包含在源码仓库中，构建会自动嵌入；更换图标时参见 [图标源文件与生成说明](winres/README.md)。
+
+桌面界面与网关是独立进程，通过本机 API 通信；桌面单实例唤起使用 `127.0.0.1:17882` 和当前用户缓存目录中的随机令牌。后台可独立运行，界面关闭或异常退出不会自动终止代理。
+
+桌面代码使用 `desktop` 构建标签，常规 `go test ./...` 检查后台与共享协议；`go test -tags desktop,ci ./internal/desktop` 使用内存图形驱动验证编辑、排序、配置刷新和平台接入控件。
 
 源码仓库不附带内核。若直接运行源码构建的 EXE，需将打包结果中的 `runtime/mihomo.exe` 复制到项目的同名位置，并保持启动与接入脚本完整。
+
+Windows 现有系统接入脚本继续随包提供；桌面界面和网关管理逻辑均为 Go。
 
 单元测试覆盖多出口故障切换、优先级恢复、保持当前出口、固定模式、删除出口、旧配置迁移、回环配置和管理接口校验。`scripts/verify-failover.mjs` 可进一步演练真实主备切换；它需要 Node.js、至少两个健康出口及运行中的网关，会暂时修改策略并可能中断连接，仅适合在可中断的测试环境执行。
 

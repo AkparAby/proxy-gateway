@@ -42,13 +42,24 @@ try {
     child.on('error',e=>console.error(e));
   }
   // LaunchServices opens the actual .app as Finder does, not only the raw binary.
-  await exec('/usr/bin/open',['-n',app]);
+  await exec('/usr/bin/open',['-n',app,'--args','--smoke-test',path.join(temp,'desktop.png')]);
   await waitFor(async()=>{const s=await status();token=s.token;return s.platform==='darwin'&&s.version===version&&s.config.outbounds.every(o=>s.health[o.id]?.available)},'native .app launch, default data path and two healthy upstreams');
   const s=await status();
   if(JSON.stringify(s.integrationOptions.map(x=>x[0]))!==JSON.stringify(['system','git','autostart'])) throw Error('Wrong Mac integration options');
   await fs.access(path.join(data,'config.json'));
   const pid = async()=>(await exec('/usr/sbin/lsof',['-t','-iTCP:17880','-sTCP:LISTEN'])).stdout.trim();
   const originalPID=await pid();
+  await waitFor(async()=>{try{const result=JSON.parse(await fs.readFile(path.join(temp,'desktop.png.json'),'utf8'));return result.ready&&result.rendered&&!result.error&&result.version===version}catch{return false}},'Fyne native canvas, tray lifecycle and connected state');
+  await fs.mkdir('runtime',{recursive:true});
+  await fs.copyFile(path.join(temp,'desktop.png'),'runtime/mac-desktop-smoke.png');
+  await sleep(1500);
+  await exec('/usr/bin/open',['-n',app,'--args','--background']);
+  await sleep(1500);
+  const sessionPath=path.join(os.homedir(),'Library/Caches/Proxy Gateway/desktop-session.json');
+  const session=JSON.parse(await fs.readFile(sessionPath,'utf8'));
+  await exec('/usr/bin/open',['-n',app]); await sleep(1000);
+  if(JSON.parse(await fs.readFile(sessionPath,'utf8')).pid!==session.pid) throw Error('Duplicate desktop instance');
+  console.log('PASS hidden desktop activation keeps a single UI process');
   await exec('/usr/bin/open',['-n',app]); await sleep(1500);
   await exec(manager,['--background']);
   if(await pid()!==originalPID) throw Error('Duplicate manager');

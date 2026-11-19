@@ -5,7 +5,7 @@ on:
       version:
         description: Release version (vX.Y.Z)
         required: true
-        default: v0.3.0
+        default: v0.4.0
   pull_request:
 permissions:
   contents: read
@@ -29,6 +29,7 @@ jobs:
           test "$(uname -m)" = arm64
           go test -race ./...
           go vet ./...
+          CGO_ENABLED=0 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
       - name: Package Apple Silicon app
         run: go run scripts/package-macos.go -version "$RELEASE_VERSION"
       - name: Test extracted app and real proxy failover
@@ -41,3 +42,10 @@ jobs:
             dist/${{ env.RELEASE_VERSION }}/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-desktop-test-image
+          path: runtime/mac-desktop-smoke.png
+          if-no-files-found: ignore
+          retention-days: 7
