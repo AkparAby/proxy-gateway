@@ -29,7 +29,7 @@ jobs:
           test "$(uname -m)" = arm64
           go test -race ./...
           go vet ./...
-          CGO_ENABLED=0 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
+          CGO_ENABLED=1 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
       - name: Package Apple Silicon app
         run: go run scripts/package-macos.go -version "$RELEASE_VERSION"
       - name: Test extracted app and real proxy failover

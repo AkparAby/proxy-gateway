@@ -262,7 +262,7 @@ macOS 本机构建：
 ```sh
 go test -race ./...
 go vet ./...
-CGO_ENABLED=0 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
+CGO_ENABLED=1 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
 go run scripts/package-macos.go -version v0.3.0
 ```
 

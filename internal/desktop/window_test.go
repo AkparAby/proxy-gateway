@@ -5,6 +5,7 @@ package desktop
 import (
 	"context"
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/test"
 	"image/png"
 	client "local/proxy-gateway/internal/gatewayclient"
@@ -146,6 +147,33 @@ func TestCanvasCapture(t *testing.T) {
 	}
 	defer f.Close()
 	if err = png.Encode(f, u.Window.Canvas().Capture()); err != nil {
+		t.Fatal(err)
+	}
+	var findTabs func(fyne.CanvasObject) *container.AppTabs
+	findTabs = func(obj fyne.CanvasObject) *container.AppTabs {
+		if tabs, ok := obj.(*container.AppTabs); ok {
+			return tabs
+		}
+		if c, ok := obj.(*fyne.Container); ok {
+			for _, child := range c.Objects {
+				if tabs := findTabs(child); tabs != nil {
+					return tabs
+				}
+			}
+		}
+		return nil
+	}
+	tabs := findTabs(u.Window.Content())
+	if tabs == nil {
+		t.Fatal("missing desktop tabs")
+	}
+	tabs.SelectIndex(2)
+	portFile, err := os.Create(filepath.Join(dir, "fyne-port-settings.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer portFile.Close()
+	if err = png.Encode(portFile, u.Window.Canvas().Capture()); err != nil {
 		t.Fatal(err)
 	}
 }
