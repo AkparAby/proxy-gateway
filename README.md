@@ -65,7 +65,7 @@ flowchart LR
 
 ### 3. 启动网关
 
-双击 **`Start-Gateway.cmd`**，它会在后台启动网关并打开管理页：
+双击 **`proxy-gateway.exe`**，它会启动网关并自动打开默认浏览器中的管理页。`Start-Gateway.cmd` 也可使用：
 
 - 管理页：<http://127.0.0.1:17880>
 - 统一代理：`127.0.0.1:17890`
@@ -76,7 +76,13 @@ flowchart LR
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Gateway.ps1 -OpenDashboard
 ```
 
-直接双击 `proxy-gateway.exe` 也能后台启动，但不会自动打开浏览器。关闭管理页不会停止网关。
+网关已运行时再次双击 EXE，会打开现有管理页，不会重复启动内核。EXE 内嵌多尺寸网关图标，无需额外放置图标文件。关闭管理页不会停止网关。
+
+需要静默启动时使用：
+
+```powershell
+.\proxy-gateway.exe --background
+```
 
 ### 4. 添加出口、调整优先级并接入应用
 
@@ -93,7 +99,7 @@ SOCKS5 代理：socks5h://127.0.0.1:17890
 
 ### 5. 可选：登录自启动
 
-在管理页启用“登录后启动网关”，之后当前 Windows 用户登录时自动启动。各出口客户端的自启动和自动连接需要分别设置。启用后请保留解压目录的路径；移动目录前先停用自启动，再在新目录重新启用。
+在管理页启用“登录后启动网关”，之后当前 Windows 用户登录时在后台自动启动，不弹出浏览器。各出口客户端的自启动和自动连接需要分别设置。启用后请保留解压目录的路径；移动目录前先停用自启动，再在新目录重新启用。
 
 ## 默认策略与边界
 
@@ -170,7 +176,7 @@ Get-FileHash .\proxy-gateway-vX.Y.Z-windows-amd64.zip -Algorithm SHA256
 
 **启动后没有窗口？**
 
-EXE 在后台运行，界面在浏览器里。使用 `Start-Gateway.cmd` 自动打开管理页。也可手动访问 <http://127.0.0.1:17880>。
+管理程序没有独立桌面窗口，界面在默认浏览器里。双击 EXE 或 `Start-Gateway.cmd` 会自动打开管理页；登录自启动和 `--background` 模式不弹浏览器。也可手动访问 <http://127.0.0.1:17880>。
 
 **启动失败或管理页打不开？**
 
@@ -197,7 +203,7 @@ git clone https://github.com/AkparAby/proxy-gateway.git
 cd proxy-gateway
 go test ./...
 go vet ./...
-pwsh -NoProfile -File .\scripts\package-release.ps1 -Version v0.2.0
+pwsh -NoProfile -File .\scripts\package-release.ps1 -Version v0.2.1
 ```
 
 打包脚本要求 Git 工作区干净，输出到 `dist/<版本>/`。它按 `scripts/mihomo.lock.json` 下载固定版本内核和对应源码，校验 SHA-256，构建 Windows x64 EXE，再按文件白名单生成 ZIP、源码附件和 `SHA256SUMS.txt`。已存在的版本目录不会被覆盖。
@@ -207,6 +213,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1 -Version v0.2.0
 ```powershell
 go build -trimpath -ldflags '-H=windowsgui' -o proxy-gateway.exe .
 ```
+
+Windows 图标资源 `rsrc_windows_amd64.syso` 已包含在源码仓库中，普通 `go build` 会自动嵌入；更换图标时参见 [图标源文件与生成说明](winres/README.md)。
 
 源码仓库不附带内核。若直接运行源码构建的 EXE，需将打包结果中的 `runtime/mihomo.exe` 复制到项目的同名位置，并保持启动与接入脚本完整。
 

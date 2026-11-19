@@ -20,7 +20,7 @@ try {
                 throw "Missing file: $file. Extract the complete release ZIP first."
             }
         }
-        $process = Start-Process -FilePath $exe -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -PassThru
+        $process = Start-Process -FilePath $exe -ArgumentList '--background' -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -PassThru
         for ($i = 0; $i -lt 30; $i++) {
             Start-Sleep -Milliseconds 500
             $status = Get-GatewayStatus

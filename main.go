@@ -357,16 +357,19 @@ func run() error {
 	if e != nil {
 		return e
 	}
-	root := filepath.Dir(exe)
-	if len(os.Args) > 1 {
-		root, e = filepath.Abs(os.Args[1])
-		if e != nil {
-			return e
-		}
+	options, e := parseLaunchOptions(exe, os.Args[1:])
+	if e != nil {
+		return e
 	}
+	root := options.root
 	listener, e := net.Listen("tcp4", "127.0.0.1:17880")
 	if e != nil {
-		return fmt.Errorf("管理端口已占用（网关可能已运行）：%w", e)
+		client := dashboardClient()
+		defer client.CloseIdleConnections()
+		if err := presentDashboard(context.Background(), client, 10*time.Second, options.background, openDashboard); err != nil {
+			return fmt.Errorf("管理端口已占用或管理页无法打开：%w", err)
+		}
+		return nil
 	}
 	defer listener.Close()
 	for _, port := range []string{"17890", "17881"} {
@@ -421,6 +424,15 @@ func run() error {
 			cancel()
 		}
 	}()
+	if !options.background {
+		go func() {
+			client := dashboardClient()
+			defer client.CloseIdleConnections()
+			if err := presentDashboard(ctx, client, 10*time.Second, false, openDashboard); err != nil {
+				log.Println(err)
+			}
+		}()
+	}
 	// A dead core is restarted with REJECT selected until fresh health checks succeed.
 	go func() {
 		for {

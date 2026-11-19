@@ -1,6 +1,7 @@
 /runtime/
 /backups/
 /proxy-gateway.exe
+/*.lnk
 /config.json
 /logs/
 /dist/

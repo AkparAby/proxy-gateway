@@ -98,7 +98,7 @@ function Invoke-Action($name,$enable) {
   if($LASTEXITCODE-ne0){throw 'WSL 接入失败，未标记为已启用'};Set-Flag $name $enable
  }
  'autostart' {
-  $key='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run';$value='LocalProxyGateway';$entry='"'+(Join-Path $Root 'proxy-gateway.exe')+'"'
+  $key='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run';$value='LocalProxyGateway';$entry='"'+(Join-Path $Root 'proxy-gateway.exe')+'" --background'
   if($enable){$old=Get-ItemProperty -LiteralPath $key -Name $value -ErrorAction SilentlyContinue;Remember $name ([pscustomobject]@{value=$old.$value});Set-ItemProperty -LiteralPath $key -Name $value -Value $entry}
   else {if($state[$name].original.value){Set-ItemProperty -LiteralPath $key -Name $value -Value $state[$name].original.value}else{Remove-ItemProperty -LiteralPath $key -Name $value -ErrorAction SilentlyContinue}};Set-Flag $name $enable
  }
