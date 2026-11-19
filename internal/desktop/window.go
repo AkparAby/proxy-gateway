@@ -41,7 +41,7 @@ type Window struct {
 	health, integrations                                       *fyne.Container
 	events                                                     *widget.Label
 	list                                                       *widget.List
-	name, host, port                                           *widget.Entry
+	name, host, port, proxyPort                                *widget.Entry
 	protocol, mode, autoReturn                                 *widget.Select
 	interval, timeout, failures, recovery, targets, domains    *widget.Entry
 	check, returnPrimary, save, discard, add, remove, up, down *widget.Button
@@ -69,7 +69,7 @@ func New(app fyne.App, api API, ctx context.Context) *Window {
 	u.header = widget.NewLabel("正在连接本地网关…")
 	u.current = widget.NewLabelWithStyle("等待出口检测", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	u.current.Wrapping = fyne.TextWrapWord
-	u.reason = wrap("应用统一连接 127.0.0.1:17890，网关按优先级选择健康出口。")
+	u.reason = wrap("应用统一连接网关监听端口，网关按优先级选择健康出口。")
 	u.notice = wrap("")
 	u.saved = widget.NewLabel("正在读取配置")
 	u.health = container.NewVBox()
@@ -86,6 +86,9 @@ func New(app fyne.App, api API, ctx context.Context) *Window {
 	})
 	u.buildEditor()
 	u.buildPolicy()
+	u.proxyPort = widget.NewEntry()
+	u.proxyPort.OnChanged = func(string) { u.markDirty() }
+	u.editables = append(u.editables, u.proxyPort)
 	logo := canvas.NewImageFromResource(icon)
 	logo.FillMode = canvas.ImageFillContain
 	logo.SetMinSize(fyne.NewSize(56, 56))
@@ -95,6 +98,7 @@ func New(app fyne.App, api API, ctx context.Context) *Window {
 	tabs := container.NewAppTabs(
 		container.NewTabItemWithIcon("概览", theme.HomeIcon(), overview),
 		container.NewTabItemWithIcon("代理出口", theme.ComputerIcon(), u.editorContent()),
+		container.NewTabItemWithIcon("网关设置", theme.StorageIcon(), u.gatewayContent()),
 		container.NewTabItemWithIcon("切换策略", theme.SettingsIcon(), u.policyContent()),
 		container.NewTabItemWithIcon("应用接入", theme.LoginIcon(), apps),
 		container.NewTabItemWithIcon("事件", theme.HistoryIcon(), container.NewVScroll(u.events)),
@@ -151,7 +155,7 @@ func (u *Window) display(s client.Status) {
 	healthChanged := !reflect.DeepEqual(u.status.Health, s.Health) || !reflect.DeepEqual(u.status.Config.Outbounds, s.Config.Outbounds) || u.status.Selected != s.Selected
 	u.status = s
 	u.online = true
-	u.header.SetText("网关运行中 · " + s.Version + " · HTTP / SOCKS5 127.0.0.1:17890")
+	u.header.SetText("网关运行中 · " + s.Version + " · HTTP / SOCKS5 " + s.Proxy)
 	u.current.SetText(s.Config.Name(s.Selected))
 	reason := s.Reason
 	if s.Error != "" {

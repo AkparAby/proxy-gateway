@@ -8,7 +8,9 @@ $manager = Join-Path $PSScriptRoot 'runtime\gateway-manager.exe'
 function Get-GatewayStatus {
     try {
         $status = Invoke-RestMethod "$dashboard/api/status" -TimeoutSec 1
-        if ($status.proxy -eq '127.0.0.1:17890' -and $status.config) { return $status }
+        $port = 17890
+        if ($null -ne $status.config.proxyPort) { $port = [int]$status.config.proxyPort }
+        if ($status.proxy -eq "127.0.0.1:$port" -and $status.config -and $status.dashboard -eq $dashboard) { return $status }
     } catch { }
     return $null
 }
@@ -29,13 +31,13 @@ try {
             if ($process.HasExited) { break }
         }
         if (-not $status) {
-            throw "Gateway did not start. Check ports 17880/17881/17890 and runtime\gateway.log / runtime\mihomo.log."
+            throw "Gateway did not start. Check management ports 17880/17881, the configured proxy port, and runtime\gateway.log / runtime\mihomo.log."
         }
     } else {
         Write-Output 'A gateway is already running on this computer.'
     }
     Write-Output "Dashboard: $dashboard"
-    Write-Output 'HTTP / SOCKS5 proxy: 127.0.0.1:17890'
+    Write-Output "HTTP / SOCKS5 proxy: $($status.proxy)"
     if ($OpenDashboard) { Start-Process -FilePath $exe -WorkingDirectory $PSScriptRoot }
     elseif ($status) { Start-Process -FilePath $exe -ArgumentList '--background' -WindowStyle Hidden }
 } catch {

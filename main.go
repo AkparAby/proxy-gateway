@@ -46,6 +46,7 @@ type Manager struct {
 	wake      chan struct{}
 	cancel    context.CancelFunc
 	bridges   *Bridges
+	rebind    func(context.Context, string, int) error
 }
 
 func nonce() string {
@@ -74,6 +75,11 @@ func (m *Manager) cycle(ctx context.Context) {
 	m.mu.Lock()
 	conf := m.config
 	m.mu.Unlock()
+	if m.bridges != nil {
+		if err := m.bridges.sync(m.root, false, conf.ProxyPort); err != nil {
+			log.Println(err)
+		}
+	}
 	type outcome struct {
 		name    string
 		ok      bool
@@ -123,9 +129,6 @@ func (m *Manager) cycle(ctx context.Context) {
 }
 func (m *Manager) monitor(ctx context.Context) {
 	for {
-		if m.bridges != nil {
-			_ = m.bridges.sync(m.root, false)
-		}
 		m.cycle(ctx)
 		m.mu.Lock()
 		interval := m.config.Interval
@@ -150,7 +153,7 @@ func (m *Manager) status() map[string]any {
 	for id, value := range m.health {
 		health[id] = value
 	}
-	return map[string]any{"version": version, "commit": commit, "config": m.config, "health": health, "selected": m.selected, "reason": m.reason, "error": m.lastError, "events": append([]Event(nil), m.events...), "token": m.token, "proxy": "127.0.0.1:17890", "dashboard": "http://127.0.0.1:17880", "integrations": integrations, "platform": runtime.GOOS, "integrationOptions": integrationOptions()}
+	return map[string]any{"version": version, "commit": commit, "config": m.config, "health": health, "selected": m.selected, "reason": m.reason, "error": m.lastError, "events": append([]Event(nil), m.events...), "token": m.token, "proxy": proxyAddress(m.config.ProxyPort), "dashboard": "http://127.0.0.1:17880", "integrations": integrations, "platform": runtime.GOOS, "integrationOptions": integrationOptions()}
 }
 func (m *Manager) saveConfig(ctx context.Context, c Config) error {
 	if e := c.validate(); e != nil {
@@ -162,26 +165,74 @@ func (m *Manager) saveConfig(ctx context.Context, c Config) error {
 	old := m.config
 	oldSelected := m.selected
 	m.mu.Unlock()
+	portChanged := c.ProxyPort != old.ProxyPort
+	if portChanged {
+		if err := checkProxyPort(c.ProxyPort); err != nil {
+			return err
+		}
+	}
 	path := filepath.Join(m.core.dir, "config.json")
-	rollback := func() {
-		_ = atomicJSON(path, coreConfig(old, m.core.secret))
-		_ = m.core.reload(ctx)
-		_ = m.core.selectProxy(ctx, oldSelected)
+	rebound := false
+	rollback := func(cause error) error {
+		// A canceled save must still be able to restore the previous listener.
+		restoreCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		var failures []error
+		if err := atomicJSON(path, coreConfig(old, m.core.secret)); err != nil {
+			failures = append(failures, err)
+		}
+		if err := m.core.reload(restoreCtx); err != nil {
+			failures = append(failures, err)
+		}
+		if err := m.core.selectProxy(restoreCtx, oldSelected); err != nil {
+			failures = append(failures, err)
+		}
+		if rebound {
+			if err := m.rebindIntegrations(restoreCtx, old.ProxyPort); err != nil {
+				failures = append(failures, err)
+			}
+			if m.bridges != nil {
+				if err := m.bridges.sync(m.root, false, old.ProxyPort); err != nil {
+					failures = append(failures, err)
+				}
+			}
+		}
+		if len(failures) > 0 {
+			cause = fmt.Errorf("%w；回退未完成，请检查网关与接入设置：%v", cause, errors.Join(failures...))
+			m.mu.Lock()
+			m.lastError = cause.Error()
+			m.event(m.lastError)
+			m.mu.Unlock()
+		}
+		return cause
 	}
 	if e := atomicJSON(path, coreConfig(c, m.core.secret)); e != nil {
 		return e
 	}
 	if e := m.core.reload(ctx); e != nil {
-		rollback()
-		return e
+		return rollback(e)
+	}
+	if portChanged {
+		if err := m.core.verifyPort(ctx, c.ProxyPort); err != nil {
+			return rollback(err)
+		}
 	}
 	if e := m.core.selectProxy(ctx, "REJECT"); e != nil {
-		rollback()
-		return e
+		return rollback(e)
+	}
+	if portChanged {
+		rebound = true
+		if err := m.rebindIntegrations(ctx, c.ProxyPort); err != nil {
+			return rollback(err)
+		}
+		if m.bridges != nil {
+			if err := m.bridges.sync(m.root, false, c.ProxyPort); err != nil {
+				return rollback(err)
+			}
+		}
 	}
 	if e := atomicJSON(filepath.Join(m.root, "config.json"), c); e != nil {
-		rollback()
-		return e
+		return rollback(e)
 	}
 	m.mu.Lock()
 	m.config = c
@@ -189,6 +240,9 @@ func (m *Manager) saveConfig(ctx context.Context, c Config) error {
 	m.selected = "REJECT"
 	m.reason = "配置已保存，重新检测出口"
 	m.event("已更新网关配置")
+	if portChanged {
+		m.event(fmt.Sprintf("网关端口 %d → %d，已同步启用的接入", old.ProxyPort, c.ProxyPort))
+	}
 	m.mu.Unlock()
 	_ = atomicJSON(filepath.Join(m.root, "runtime", "selection.json"), map[string]string{"selected": "REJECT"})
 	m.kick()
@@ -230,12 +284,12 @@ func (m *Manager) integrate(ctx context.Context, name string, enabled bool) (str
 		mode = "enable"
 	}
 	if name == "wsl" && enabled {
-		if err := m.bridges.sync(m.root, true); err != nil {
+		if err := m.bridges.sync(m.root, true, m.config.ProxyPort); err != nil {
 			return err.Error(), err
 		}
 	}
 	text, err := runIntegration(ctx, m.root, name, enabled)
-	_ = m.bridges.sync(m.root, false)
+	_ = m.bridges.sync(m.root, false, m.config.ProxyPort)
 	if err != nil {
 		return err.Error(), err
 	}
@@ -284,12 +338,14 @@ func (m *Manager) serve(w http.ResponseWriter, r *http.Request) {
 		m.kick()
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	case r.URL.Path == "/api/config" && r.Method == "POST":
-		var c Config
+		m.mu.Lock()
+		c := Config{ProxyPort: m.config.ProxyPort}
+		m.mu.Unlock()
 		if e := json.NewDecoder(r.Body).Decode(&c); e != nil {
 			writeJSON(w, 400, map[string]string{"error": e.Error()})
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 		defer cancel()
 		if e := m.saveConfig(ctx, c); e != nil {
 			writeJSON(w, 400, map[string]string{"error": e.Error()})
@@ -371,7 +427,7 @@ func run() error {
 		return nil
 	}
 	defer listener.Close()
-	for _, port := range []string{"17890", "17881"} {
+	for _, port := range []string{"17881"} {
 		l, e := net.Listen("tcp4", "127.0.0.1:"+port)
 		if e != nil {
 			return fmt.Errorf("端口 %s 已占用：%w", port, e)
@@ -391,6 +447,9 @@ func run() error {
 	if e != nil {
 		return e
 	}
+	if err := checkProxyPort(conf.ProxyPort); err != nil {
+		return err
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	core := &Core{executable: coreExecutable(exe, root), secret: nonce(), dir: filepath.Join(root, "runtime"), client: &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 15 * time.Second}}
@@ -401,6 +460,9 @@ func run() error {
 		return e
 	}
 	defer core.stop()
+	if err := core.verifyPort(ctx, conf.ProxyPort); err != nil {
+		return err
+	}
 	selected := "REJECT"
 	var last map[string]string
 	if b, e := os.ReadFile(filepath.Join(core.dir, "selection.json")); e == nil {
@@ -409,7 +471,7 @@ func run() error {
 		}
 	}
 	bridges := &Bridges{}
-	if e := bridges.sync(root, false); e != nil {
+	if e := bridges.sync(root, false, conf.ProxyPort); e != nil {
 		log.Println(e)
 	}
 	defer bridges.close()

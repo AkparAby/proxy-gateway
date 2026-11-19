@@ -27,7 +27,7 @@ func reportLaunchError(err error) {
 
 type Bridges struct{}
 
-func (b *Bridges) sync(root string, force bool) error {
+func (b *Bridges) sync(root string, force bool, port int) error {
 	if force {
 		return fmt.Errorf("macOS 不支持 WSL 接入")
 	}

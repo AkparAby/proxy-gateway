@@ -19,7 +19,7 @@ type Bridges struct {
 	listeners map[string]net.Listener
 }
 
-func (b *Bridges) sync(root string, force bool) error {
+func (b *Bridges) sync(root string, force bool, port int) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.listeners == nil {
@@ -45,27 +45,34 @@ func (b *Bridges) sync(root string, force bool) error {
 				ip, n, e := net.ParseCIDR(a.String())
 				if e == nil && ip.To4() != nil && ip.IsPrivate() {
 					n.IP = ip
-					addresses[ip.String()] = n
+					addresses[net.JoinHostPort(ip.String(), fmt.Sprint(port))] = n
 				}
 			}
 		}
 	}
-	for ip, l := range b.listeners {
-		if _, ok := addresses[ip]; !ok {
-			l.Close()
-			delete(b.listeners, ip)
-		}
-	}
-	for ip, network := range addresses {
-		if _, ok := b.listeners[ip]; ok {
+	created := map[string]net.Listener{}
+	for address, network := range addresses {
+		if _, ok := b.listeners[address]; ok {
 			continue
 		}
-		l, e := net.Listen("tcp4", net.JoinHostPort(ip, "17890"))
+		l, e := net.Listen("tcp4", address)
 		if e != nil {
-			return fmt.Errorf("WSL 接入口 %s: %w", ip, e)
+			for _, opened := range created {
+				opened.Close()
+			}
+			return fmt.Errorf("WSL 接入口 %s: %w", address, e)
 		}
-		b.listeners[ip] = l
-		go bridgeAccept(l, network)
+		created[address] = l
+		go bridgeAccept(l, network, port)
+	}
+	for address, l := range b.listeners {
+		if _, ok := addresses[address]; !ok {
+			l.Close()
+			delete(b.listeners, address)
+		}
+	}
+	for address, l := range created {
+		b.listeners[address] = l
 	}
 	if force && len(addresses) == 0 {
 		return fmt.Errorf("没有找到 WSL 虚拟网卡；请先启动 Ubuntu")
@@ -79,7 +86,7 @@ func (b *Bridges) close() {
 		l.Close()
 	}
 }
-func bridgeAccept(l net.Listener, network *net.IPNet) {
+func bridgeAccept(l net.Listener, network *net.IPNet, port int) {
 	for {
 		conn, e := l.Accept()
 		if e != nil {
@@ -92,7 +99,7 @@ func bridgeAccept(l net.Listener, network *net.IPNet) {
 		}
 		go func() {
 			defer conn.Close()
-			upstream, e := net.DialTimeout("tcp4", "127.0.0.1:17890", 3*time.Second)
+			upstream, e := net.DialTimeout("tcp4", proxyAddress(port), 3*time.Second)
 			if e != nil {
 				return
 			}

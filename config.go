@@ -26,6 +26,7 @@ type Outbound struct {
 }
 type Config struct {
 	SchemaVersion int        `json:"schemaVersion"`
+	ProxyPort     int        `json:"proxyPort"`
 	Outbounds     []Outbound `json:"outbounds"`
 	Mode          string     `json:"mode"`
 	AutoReturn    bool       `json:"autoReturn"`
@@ -38,7 +39,7 @@ type Config struct {
 }
 
 func defaults() Config {
-	return Config{SchemaVersion: 2, Outbounds: []Outbound{
+	return Config{SchemaVersion: 2, ProxyPort: 17890, Outbounds: []Outbound{
 		{"proxy-1", "代理 1", Endpoint{"http", "127.0.0.1", 17891}},
 		{"proxy-2", "代理 2", Endpoint{"http", "127.0.0.1", 7892}},
 	}, Mode: "auto", AutoReturn: true, Interval: 10, Timeout: 3000, Failures: 3, Recovery: 60,
@@ -89,6 +90,9 @@ func coreName(id string) string {
 	return "upstream-" + id
 }
 func (c Config) validate() error {
+	if c.ProxyPort < 1024 || c.ProxyPort > 65535 || c.ProxyPort == 17880 || c.ProxyPort == 17881 || c.ProxyPort == 17882 {
+		return errors.New("网关端口须为 1024–65535，不能使用管理端口 17880、17881、17882")
+	}
 	if c.SchemaVersion != 2 {
 		return errors.New("配置版本不支持，请刷新管理页或更新程序")
 	}
@@ -123,7 +127,7 @@ func (c Config) validate() error {
 		names[strings.ToLower(name)] = true
 		e := o.Endpoint
 		ip := net.ParseIP(e.Host)
-		if ip == nil || !ip.IsLoopback() || (e.Type != "http" && e.Type != "socks5") || e.Port < 1 || e.Port > 65535 || e.Port == 17890 || e.Port == 17880 || e.Port == 17881 || e.Port == 17882 {
+		if ip == nil || !ip.IsLoopback() || (e.Type != "http" && e.Type != "socks5") || e.Port < 1 || e.Port > 65535 || e.Port == c.ProxyPort || e.Port == 17880 || e.Port == 17881 || e.Port == 17882 {
 			return errors.New("出口必须使用独立的本地 HTTP/SOCKS5 端口")
 		}
 		address := net.JoinHostPort(ip.String(), fmt.Sprint(e.Port))
@@ -245,5 +249,5 @@ func coreConfig(c Config, secret string) map[string]any {
 		proxies = append(proxies, map[string]any{"name": name, "type": o.Type, "server": o.Host, "port": o.Port, "udp": false})
 		choices = append(choices, name)
 	}
-	return map[string]any{"mixed-port": 17890, "bind-address": "127.0.0.1", "allow-lan": false, "mode": "rule", "log-level": "warning", "ipv6": true, "external-controller": "127.0.0.1:17881", "secret": secret, "tun": map[string]any{"enable": false}, "dns": map[string]any{"enable": false}, "profile": map[string]any{"store-selected": false}, "proxies": proxies, "proxy-groups": []any{map[string]any{"name": "Gateway", "type": "select", "proxies": choices}}, "rules": rules}
+	return map[string]any{"mixed-port": c.ProxyPort, "bind-address": "127.0.0.1", "allow-lan": false, "mode": "rule", "log-level": "warning", "ipv6": true, "external-controller": "127.0.0.1:17881", "secret": secret, "tun": map[string]any{"enable": false}, "dns": map[string]any{"enable": false}, "profile": map[string]any{"store-selected": false}, "proxies": proxies, "proxy-groups": []any{map[string]any{"name": "Gateway", "type": "select", "proxies": choices}}, "rules": rules}
 }

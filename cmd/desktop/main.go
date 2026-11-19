@@ -189,7 +189,7 @@ func ensureGateway(ctx context.Context, api *gatewayclient.Client, manager, root
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("网关启动超时，请检查 17880 / 17881 / 17890 端口与运行日志")
+	return fmt.Errorf("网关启动超时，请检查管理端口 17880 / 17881、配置中的网关端口与运行日志")
 }
 func capture(w *ui.Window, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

@@ -8,7 +8,7 @@
 </head>
 <body><main>
   <header>
-    <div><div class="eyebrow">LOCAL PROXY GATEWAY</div><h1>一个入口，多个代理出口。</h1><p>应用连接 <code>127.0.0.1:17890</code>，出口按优先级自动切换。</p></div>
+    <div><div class="eyebrow">LOCAL PROXY GATEWAY</div><h1>一个入口，多个代理出口。</h1><p>应用连接 <code id="proxy-address">正在读取</code>，出口按优先级自动切换。</p></div>
     <div class="connection-info"><span id="connection" class="pill">正在连接</span><small id="version"></small></div>
   </header>
   <div id="notice" role="status" hidden></div>
@@ -21,6 +21,8 @@
     <div class="section-title"><h2>代理出口与切换策略</h2><span id="saved" role="status">正在加载配置</span></div>
     <form id="settings"><fieldset id="config-fields" disabled>
       <p class="hint">支持 1–16 个本机 HTTP / SOCKS5 出口。列表越靠前优先级越高，第一个是首选出口。名称仅用于识别，不限定代理软件。修改后需要保存。</p>
+      <label>网关监听端口<input name="proxyPort" type="number" min="1024" max="65535" required></label>
+      <p class="hint">默认 17890，HTTP / SOCKS5 共用。修改后同步已启用的接入；现有连接可能中断，终端及容器需重新打开或创建。手动配置的代理地址需自行修改。管理端口 17880 / 17881 / 17882 不可占用。</p>
       <div id="outbound-editor"></div>
       <button id="add-outbound" type="button">＋ 添加代理应用</button>
       <div class="grid policy-grid">

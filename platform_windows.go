@@ -28,6 +28,16 @@ func integrationOptions() [][3]string {
 }
 
 func runIntegration(ctx context.Context, root, name string, enabled bool) (string, error) {
+	port, err := configuredProxyPort(root)
+	if err != nil && name != "restore" && enabled {
+		return "", err
+	}
+	if err != nil {
+		port = 17890
+	}
+	return runIntegrationAtPort(ctx, root, name, enabled, port)
+}
+func runIntegrationAtPort(ctx context.Context, root, name string, enabled bool, port int) (string, error) {
 	mode := "disable"
 	if enabled {
 		mode = "enable"
@@ -36,7 +46,7 @@ func runIntegration(ctx context.Context, root, name string, enabled bool) (strin
 	if err != nil {
 		shell = "powershell.exe"
 	}
-	cmd := exec.CommandContext(ctx, shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(root, "scripts", "integrations.ps1"), "-Action", name, "-Mode", mode, "-Root", root)
+	cmd := exec.CommandContext(ctx, shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(root, "scripts", "integrations.ps1"), "-Action", name, "-Mode", mode, "-Root", root, "-ProxyPort", fmt.Sprint(port))
 	configureCommand(cmd)
 	b, err := cmd.CombinedOutput()
 	output := strings.TrimSpace(string(b))

@@ -64,6 +64,7 @@ try {
   await exec(manager,['--background']);
   if(await pid()!==originalPID) throw Error('Duplicate manager');
   console.log('PASS reopen app and background launch reuse existing manager');
+  await exec('node',['scripts/verify-port.mjs'],{timeout:180000}).then(r=>console.log(r.stdout));
   await exec('node',['scripts/verify-failover.mjs'],{timeout:240000}).then(r=>console.log(r.stdout));
   await exec(manager,['--restore']);
   console.log('PASS emergency restoration while manager is running');

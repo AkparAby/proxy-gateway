@@ -58,7 +58,7 @@ try {
   await waitFor(s => s.selected === second, 'first exit failure selects second');
   b.set(false); await post('/api/check');
   await waitFor(s => s.selected === third, 'second exit failure selects third');
-  await https('http://127.0.0.1:17890'); await https('socks5h://127.0.0.1:17890'); pass('HTTP and SOCKS5 work through third exit');
+  await https(`http://127.0.0.1:${original.proxyPort ?? 17890}`); await https(`socks5h://127.0.0.1:${original.proxyPort ?? 17890}`); pass('HTTP and SOCKS5 work through third exit');
   b.set(true); await post('/api/check');
   await waitFor(s => s.health[second].lastOK && s.selected === third, 'third exit retained during recovery observation');
   await waitFor(s => s.selected === second, 'stable second priority recovered');
@@ -79,7 +79,7 @@ try {
   await waitFor(s => s.selected === 'REJECT' && s.health[first].available, 'fixed failed exit never falls back');
   config.mode = 'auto'; a.set(false); b.set(false); await post('/api/config', config);
   await waitFor(s => s.selected === 'REJECT' && config.outbounds.every(o => s.health[o.id]?.checked), 'all exits failed: REJECT');
-  await https('http://127.0.0.1:17890', false); pass('all-down HTTPS fails closed');
+  await https(`http://127.0.0.1:${original.proxyPort ?? 17890}`, false); pass('all-down HTTPS fails closed');
   for (const r of relays) r.set(true);
   config.outbounds.reverse(); config.outbounds[0].name = 'DIRECT'; await post('/api/config', config);
   await waitFor(s => s.selected === third && s.config.outbounds[0].name === 'DIRECT', 'reorder and reserved display name are safe');

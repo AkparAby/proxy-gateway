@@ -94,7 +94,7 @@ function renderEditor() {
 }
 function fill(config) {
   draft = structuredClone(config.outbounds);
-  for (const key of ['autoReturn', 'recovery', 'interval', 'timeout', 'failures']) form.elements[key].value = String(config[key]);
+  for (const key of ['proxyPort', 'autoReturn', 'recovery', 'interval', 'timeout', 'failures']) form.elements[key].value = String(config[key]);
   form.elements.targets.value = config.targets.join('\n');
   form.elements.directDomains.value = config.directDomains.join('\n');
   syncModes(config.mode); renderEditor();
@@ -111,6 +111,7 @@ function controls() {
 function display(status) {
   if (!Array.isArray(status.config.outbounds)) throw Error('版本不匹配，请升级网关后刷新页面');
   state = status;
+  $('#proxy-address').textContent = status.proxy;
   renderIntegrations(status.integrationOptions || []);
   $('#connection').textContent = '网关运行中'; $('#connection').className = 'pill ok';
   $('#version').textContent = status.version || '';
@@ -186,7 +187,7 @@ $('#add-outbound').onclick = () => {
   if (busy || draft.length >= 16) return;
   let number = 1, port = 7890;
   while (draft.some(o => o.name === `代理 ${number}`)) number++;
-  while (draft.some(o => o.port === port) || [17880, 17881, 17890].includes(port)) port++;
+  while (draft.some(o => o.port === port) || [17880, 17881, 17882, Number(form.elements.proxyPort.value)].includes(port)) port++;
   draft.push({id: crypto.randomUUID(), name: `代理 ${number}`, type: 'http', host: '127.0.0.1', port});
   syncModes(); renderEditor(); dirty();
   $('#outbound-editor').lastElementChild.querySelector('input').focus();
@@ -200,11 +201,11 @@ form.addEventListener('submit', event => {
     config.outbounds = draft.map(o => ({...o, name: o.name.trim(), host: o.host.trim()}));
     config.mode = form.elements.mode.value;
     config.autoReturn = form.elements.autoReturn.value === 'true';
-    for (const key of ['recovery', 'interval', 'timeout', 'failures']) config[key] = Number(form.elements[key].value);
+    for (const key of ['proxyPort', 'recovery', 'interval', 'timeout', 'failures']) config[key] = Number(form.elements[key].value);
     for (const key of ['targets', 'directDomains']) config[key] = form.elements[key].value.split('\n').map(s => s.trim()).filter(Boolean);
     await api('/api/config', config);
     loaded = false;
-    notice('出口与策略已保存，正在重新检查所有出口。');
+    notice(config.proxyPort !== state.config.proxyPort ? '端口已更新，已同步启用的接入。请重开终端、重建容器，并修改手动代理地址。' : '设置已保存，正在重新检查所有出口。');
   });
 });
 $('#check').onclick = () => act(async () => { await api('/api/check'); notice('已开始检查所有出口。'); });

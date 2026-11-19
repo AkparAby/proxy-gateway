@@ -26,6 +26,40 @@ func TestMacProxyParsing(t *testing.T) {
 	}
 }
 
+func TestMacCustomPortRebindPreservesOriginals(t *testing.T) {
+	m := macIntegrator{root: t.TempDir(), home: t.TempDir(), port: 18890}
+	original := macIntegrationState{Enabled: map[string]bool{"system": true, "git": true, "autostart": true}, Services: []macService{{Name: "Wi-Fi", HTTP: macProxy{true, "old.example", 8080}}}, GitProxy: []string{"http://old.example:8080"}}
+	if err := m.save(&original); err != nil {
+		t.Fatal(err)
+	}
+	before := string(mustRead(t, m.statePath()))
+	m.admin = func(_ context.Context, script string) error {
+		if !strings.Contains(script, "'127.0.0.1' '18890'") {
+			t.Fatal(script)
+		}
+		return nil
+	}
+	m.command = func(_ context.Context, name string, args ...string) (string, error) {
+		if name != "/usr/bin/git" || args[len(args)-1] != "http://127.0.0.1:18890" {
+			t.Fatal(name, args)
+		}
+		return "", nil
+	}
+	if _, err := m.run(context.Background(), "rebind", true); err != nil {
+		t.Fatal(err)
+	}
+	if before != string(mustRead(t, m.statePath())) {
+		t.Fatal("originals replaced")
+	}
+	if _, err := os.Stat(m.agentPath()); !os.IsNotExist(err) {
+		t.Fatal("rebind modified login startup")
+	}
+	restored := networkScript(original.Services, false, 18890)
+	if !strings.Contains(restored, "'old.example' '8080'") || strings.Contains(restored, "'18890'") {
+		t.Fatal("restore used new port", restored)
+	}
+}
+
 func TestMacNetworkSnapshotAndRestore(t *testing.T) {
 	name := "Wi-Fi '$(touch /tmp/should-not-exist)'"
 	reads := 0

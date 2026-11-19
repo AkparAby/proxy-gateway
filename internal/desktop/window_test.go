@@ -18,7 +18,7 @@ type fakeAPI struct{}
 func (fakeAPI) Status(context.Context) (client.Status, error)             { return exampleStatus(), nil }
 func (fakeAPI) Post(context.Context, string, string, any) (string, error) { return "ok", nil }
 func exampleStatus() client.Status {
-	return client.Status{Version: "v0.4.0", Selected: "a", Token: "test", Config: client.Config{SchemaVersion: 2, Mode: "auto", AutoReturn: true, Interval: 10, Timeout: 3000, Failures: 3, Recovery: 60, Targets: []string{"https://www.gstatic.com/generate_204"}, DirectDomains: []string{"localhost", "local"}, Outbounds: []client.Outbound{{ID: "a", Name: "主代理", Type: "http", Host: "127.0.0.1", Port: 7890}, {ID: "b", Name: "备用代理", Type: "socks5", Host: "::1", Port: 1080}}}, Health: map[string]client.Health{"a": {Available: true, Checked: true, LastOK: true, Latency: 42, Detail: "HTTPS 检测通过"}}, IntegrationOptions: [][3]string{{"system", "系统代理", "保存原设置，可随时恢复"}, {"autostart", "登录后启动", "后台托盘运行"}}}
+	return client.Status{Version: "v0.4.0", Selected: "a", Token: "test", Proxy: "127.0.0.1:17890", Config: client.Config{SchemaVersion: 2, ProxyPort: 17890, Mode: "auto", AutoReturn: true, Interval: 10, Timeout: 3000, Failures: 3, Recovery: 60, Targets: []string{"https://www.gstatic.com/generate_204"}, DirectDomains: []string{"localhost", "local"}, Outbounds: []client.Outbound{{ID: "a", Name: "主代理", Type: "http", Host: "127.0.0.1", Port: 7890}, {ID: "b", Name: "备用代理", Type: "socks5", Host: "::1", Port: 1080}}}, Health: map[string]client.Health{"a": {Available: true, Checked: true, LastOK: true, Latency: 42, Detail: "HTTPS 检测通过"}}, IntegrationOptions: [][3]string{{"system", "系统代理", "保存原设置，可随时恢复"}, {"autostart", "登录后启动", "后台托盘运行"}}}
 }
 func testWindow(t *testing.T) *Window {
 	t.Helper()
@@ -34,11 +34,18 @@ func TestDraftSurvivesHealthRefresh(t *testing.T) {
 	u.name.SetText("修改中的名称")
 	u.host.SetText("::1")
 	u.port.SetText("19080")
+	u.proxyPort.SetText("18890")
 	u.protocol.SetSelected("SOCKS5")
 	u.mode.SetSelectedIndex(1)
 	s := exampleStatus()
 	s.Health["a"] = client.Health{Available: false, Checked: true}
 	u.display(s)
+	if u.proxyPort.Text != "18890" {
+		t.Fatal("refresh discarded gateway port")
+	}
+	if c, err := u.collect(); err != nil || c.ProxyPort != 18890 {
+		t.Fatal(c, err)
+	}
 	if u.name.Text != "修改中的名称" || u.draft.Outbounds[0].Port != 19080 || u.draft.Outbounds[0].Type != "socks5" || u.draft.Mode != "a" || !u.dirty {
 		t.Fatal("refresh discarded edits", u.draft)
 	}
@@ -48,6 +55,20 @@ func TestDraftSurvivesHealthRefresh(t *testing.T) {
 	u.fill(s.Config)
 	if u.dirty || u.name.Text != "主代理" || !u.save.Disabled() {
 		t.Fatal("discard did not restore saved config")
+	}
+}
+
+func TestGatewayPortEditorRejectsConflicts(t *testing.T) {
+	u := testWindow(t)
+	for _, port := range []string{"text", "0", "80", "65536", "17880", "17881", "17882", "7890"} {
+		u.proxyPort.SetText(port)
+		if _, err := u.collect(); err == nil {
+			t.Fatal("invalid port accepted", port)
+		}
+	}
+	u.fill(exampleStatus().Config)
+	if u.proxyPort.Text != "17890" || u.dirty {
+		t.Fatal("port discard failed")
 	}
 }
 func TestEditingPriorityBoundsAndFixedDeletion(t *testing.T) {

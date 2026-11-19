@@ -75,7 +75,14 @@ func dashboardReady(ctx context.Context, client *http.Client) bool {
 	if json.NewDecoder(io.LimitReader(response.Body, 128<<10)).Decode(&status) != nil {
 		return false
 	}
-	return status.Proxy == "127.0.0.1:17890" && status.Dashboard == dashboardURL && len(status.Config) > 0 && string(status.Config) != "null"
+	var conf struct {
+		ProxyPort int `json:"proxyPort"`
+	}
+	conf.ProxyPort = 17890
+	if json.Unmarshal(status.Config, &conf) != nil {
+		return false
+	}
+	return conf.ProxyPort >= 1024 && conf.ProxyPort <= 65535 && status.Proxy == proxyAddress(conf.ProxyPort) && status.Dashboard == dashboardURL && len(status.Config) > 0 && string(status.Config) != "null"
 }
 
 // Probe readiness instead of sleeping for a fixed time or opening a different

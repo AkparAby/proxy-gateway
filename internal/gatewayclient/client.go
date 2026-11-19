@@ -23,6 +23,7 @@ type Outbound struct {
 }
 type Config struct {
 	SchemaVersion int        `json:"schemaVersion"`
+	ProxyPort     int        `json:"proxyPort"`
 	Outbounds     []Outbound `json:"outbounds"`
 	Mode          string     `json:"mode"`
 	AutoReturn    bool       `json:"autoReturn"`
@@ -84,7 +85,10 @@ func New() *Client {
 func (c *Client) Status(ctx context.Context) (Status, error) {
 	var s Status
 	err := c.request(ctx, "GET", "/api/status", "", nil, &s)
-	if err == nil && (s.Dashboard != URL || s.Proxy != "127.0.0.1:17890" || s.Config.SchemaVersion != 2 || len(s.Config.Outbounds) == 0 || s.Token == "") {
+	if s.Config.ProxyPort == 0 {
+		s.Config.ProxyPort = 17890
+	} // Older managers omit the optional field.
+	if err == nil && (s.Dashboard != URL || s.Config.ProxyPort < 1024 || s.Config.ProxyPort > 65535 || s.Proxy != fmt.Sprintf("127.0.0.1:%d", s.Config.ProxyPort) || s.Config.SchemaVersion != 2 || len(s.Config.Outbounds) == 0 || s.Token == "") {
 		err = fmt.Errorf("管理端口上的服务不是兼容的 Proxy Gateway")
 	}
 	return s, err

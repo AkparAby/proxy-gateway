@@ -39,6 +39,7 @@ type macIntegrationState struct {
 }
 type macIntegrator struct {
 	root, home, executable string
+	port                   int
 	command                func(context.Context, string, ...string) (string, error)
 	admin                  func(context.Context, string) error
 }
@@ -63,6 +64,16 @@ func privilegedNetworkSetup(ctx context.Context, script string) error {
 }
 
 func runIntegration(ctx context.Context, root, name string, enabled bool) (string, error) {
+	port, err := configuredProxyPort(root)
+	if err != nil && name != "restore" && enabled {
+		return "", err
+	}
+	if err != nil {
+		port = 17890
+	}
+	return runIntegrationAtPort(ctx, root, name, enabled, port)
+}
+func runIntegrationAtPort(ctx context.Context, root, name string, enabled bool, port int) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -71,7 +82,7 @@ func runIntegration(ctx context.Context, root, name string, enabled bool) (strin
 	if err != nil {
 		return "", err
 	}
-	m := macIntegrator{root, home, executable, macCommand, privilegedNetworkSetup}
+	m := macIntegrator{root: root, home: home, executable: executable, port: port, command: macCommand, admin: privilegedNetworkSetup}
 	return m.run(ctx, name, enabled)
 }
 
@@ -88,8 +99,11 @@ func (m macIntegrator) save(s *macIntegrationState) error {
 	return atomicJSON(filepath.Join(m.root, "runtime", "integrations-status.json"), s.Enabled)
 }
 func (m macIntegrator) run(ctx context.Context, name string, enabled bool) (string, error) {
-	if name != "system" && name != "git" && name != "autostart" && name != "restore" && name != "status" {
-		return "", fmt.Errorf("macOS 暂不支持此接入项：%s；可在应用中手动设置 127.0.0.1:17890", name)
+	if m.port == 0 {
+		m.port = 17890
+	}
+	if name != "system" && name != "git" && name != "autostart" && name != "restore" && name != "status" && name != "rebind" {
+		return "", fmt.Errorf("macOS 暂不支持此接入项：%s；可在应用中手动设置 %s", name, proxyAddress(m.port))
 	}
 	s := macIntegrationState{Enabled: map[string]bool{}}
 	b, err := os.ReadFile(m.statePath())
@@ -102,6 +116,18 @@ func (m macIntegrator) run(ctx context.Context, name string, enabled bool) (stri
 	}
 	if s.Enabled == nil {
 		s.Enabled = map[string]bool{}
+	}
+	if name == "rebind" {
+		// Reapply only active proxy integrations. Never recapture originals or
+		// touch login startup when the listener changes.
+		for _, item := range []string{"system", "git"} {
+			if s.Enabled[item] {
+				if err := m.apply(ctx, item, true, &s); err != nil {
+					return "", err
+				}
+			}
+		}
+		return "已同步启用的接入端口", nil
 	}
 	if name == "status" {
 		return "接入状态已更新", m.save(&s)
@@ -174,10 +200,10 @@ func (m macIntegrator) capture(ctx context.Context, name string, s *macIntegrati
 func (m macIntegrator) apply(ctx context.Context, name string, enabled bool, s *macIntegrationState) error {
 	switch name {
 	case "system":
-		return m.admin(ctx, networkScript(s.Services, enabled))
+		return m.admin(ctx, networkScript(s.Services, enabled, m.port))
 	case "git":
 		if enabled {
-			_, err := m.command(ctx, "/usr/bin/git", "config", "--global", "--replace-all", "http.proxy", "http://127.0.0.1:17890")
+			_, err := m.command(ctx, "/usr/bin/git", "config", "--global", "--replace-all", "http.proxy", "http://"+proxyAddress(m.port))
 			return err
 		}
 		_, err := m.command(ctx, "/usr/bin/git", "config", "--global", "--unset-all", "http.proxy")
@@ -338,7 +364,7 @@ func (m macIntegrator) snapshotServices(ctx context.Context) ([]macService, erro
 	return services, nil
 }
 
-func networkScript(services []macService, enabled bool) string {
+func networkScript(services []macService, enabled bool, port int) string {
 	var b strings.Builder
 	b.WriteString("set -eu\napply() {\n  output=$(/usr/sbin/networksetup \"$@\" 2>&1) || { printf '%s\\n' \"$output\"; return 1; }\n  case \"$output\" in *Error*|*error*|*'not a recognized'*) printf '%s\\n' \"$output\"; return 1;; esac\n}\n")
 	write := func(args ...string) {
@@ -359,7 +385,7 @@ func networkScript(services []macService, enabled bool) string {
 		for i, kind := range []string{"webproxy", "securewebproxy", "socksfirewallproxy"} {
 			p := []macProxy{s.HTTP, s.HTTPS, s.SOCKS}[i]
 			if enabled {
-				p = macProxy{true, "127.0.0.1", 17890}
+				p = macProxy{true, "127.0.0.1", port}
 			}
 			// Empty original endpoints only require disabling the proxy. No
 			// credentials, bypass domains or PAC URL are ever overwritten.

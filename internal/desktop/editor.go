@@ -85,7 +85,7 @@ func (u *Window) loadSelected() {
 	u.protocol.SetSelected(strings.ToUpper(o.Type))
 }
 func (u *Window) addOutbound() {
-	used := map[int]bool{17880: true, 17881: true, 17882: true, 17890: true}
+	used := map[int]bool{17880: true, 17881: true, 17882: true, u.draft.ProxyPort: true}
 	for _, o := range u.draft.Outbounds {
 		used[o.Port] = true
 	}
@@ -201,6 +201,7 @@ func (u *Window) fill(c client.Config) {
 	u.loading = true
 	u.draft, u.base = c.Clone(), c.Clone()
 	u.selected = 0
+	u.proxyPort.SetText(strconv.Itoa(c.ProxyPort))
 	u.interval.SetText(strconv.Itoa(c.Interval))
 	u.timeout.SetText(strconv.Itoa(c.Timeout))
 	u.failures.SetText(strconv.Itoa(c.Failures))
@@ -227,12 +228,20 @@ func (u *Window) collect() (client.Config, error) {
 		entry *widget.Entry
 		value *int
 		name  string
-	}{{u.interval, &c.Interval, "检查间隔"}, {u.timeout, &c.Timeout, "超时"}, {u.failures, &c.Failures, "失败次数"}, {u.recovery, &c.Recovery, "观察时间"}} {
+	}{{u.proxyPort, &c.ProxyPort, "网关端口"}, {u.interval, &c.Interval, "检查间隔"}, {u.timeout, &c.Timeout, "超时"}, {u.failures, &c.Failures, "失败次数"}, {u.recovery, &c.Recovery, "观察时间"}} {
 		value, err := strconv.Atoi(strings.TrimSpace(pair.entry.Text))
 		if err != nil {
 			return c, fmt.Errorf("%s必须为整数", pair.name)
 		}
 		*pair.value = value
+	}
+	if c.ProxyPort < 1024 || c.ProxyPort > 65535 || c.ProxyPort == 17880 || c.ProxyPort == 17881 || c.ProxyPort == 17882 {
+		return c, fmt.Errorf("网关端口须为 1024–65535，且不能占用管理端口 17880、17881、17882")
+	}
+	for _, o := range c.Outbounds {
+		if o.Port == c.ProxyPort {
+			return c, fmt.Errorf("网关端口不能与代理出口 %s 的端口相同", o.Name)
+		}
 	}
 	c.AutoReturn = u.autoReturn.SelectedIndex() == 0
 	lines := func(text string) []string {
@@ -271,6 +280,18 @@ func (u *Window) saveConfig() {
 			return "", fmt.Errorf("配置已在其他窗口更新，请先撤销修改，重新读取后再编辑")
 		}
 		_, err = u.api.Post(ctx, "/api/config", latest.Token, c)
-		return "设置已保存，正在重新检测出口", err
+		message := "设置已保存，正在重新检测出口"
+		if c.ProxyPort != base.ProxyPort {
+			message = fmt.Sprintf("网关端口已改为 %d。已同步启用的接入；请重开终端、重建容器，并更新手动填写的代理地址。", c.ProxyPort)
+		}
+		return message, err
 	}, func() { u.status.Config = c.Clone(); u.fill(c) })
+}
+
+func (u *Window) gatewayContent() fyne.CanvasObject {
+	return container.NewVScroll(container.NewVBox(
+		widget.NewCard("本地网关入口", "HTTP / HTTPS CONNECT / SOCKS5 共用一个端口", widget.NewForm(widget.NewFormItem("监听端口", u.proxyPort))),
+		wrap("默认 17890，可设置为 1024–65535。仅监听 127.0.0.1，不能与代理出口或管理端口冲突。"),
+		wrap("保存后自动重新监听并同步已启用的系统代理、Git、终端、Docker 和 WSL 接入。现有连接可能需要重试；已打开的终端和已创建的容器需重新打开或创建。macOS 更新系统代理时会请求管理员授权。"),
+		wrap("在其他应用中手动填写的代理地址需自行修改。管理端口 17880、17881、17882 保持固定。")))
 }
