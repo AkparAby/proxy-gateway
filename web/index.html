@@ -40,7 +40,7 @@
     </fieldset></form>
     <div class="actions"><button id="return" type="button" disabled>现在切回首选出口</button><small>针对已保存的配置，仅自动模式可用。</small></div>
   </section>
-  <section><h2>应用接入</h2><p class="hint">每项独立启用，并保存原值供恢复。系统代理影响所有遵循它的应用；环境变量对新启动的程序生效。</p><div id="integrations"></div><p class="hint">终端与子进程需重启后继承环境变量。Git SSH 不受 HTTP 代理选项控制。Docker/WSL 接入说明见项目 README。</p></section>
+  <section><h2>应用接入</h2><p class="hint">每项独立启用，并保存原值供恢复。系统代理影响所有遵循它的应用；环境变量对新启动的程序生效。</p><div id="integrations"></div><p class="hint">接入项按系统显示。Git SSH 不受 HTTP 代理选项控制。终端、Docker 和 WSL 的适用范围及手动配置见 README。</p></section>
   <section><h2>最近事件</h2><ul id="events"></ul></section>
   <footer><span>仅本机管理 · HTTP / SOCKS5 统一入口 · 已有连接可能需要重试</span><button id="stop" class="danger" disabled>恢复接入设置并停止</button></footer>
 </main><script src="/app.js"></script></body>

@@ -12,5 +12,10 @@
     "url": "https://codeload.github.com/MetaCubeX/mihomo/zip/3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
     "sha256": "030a128de8be6d70ddfd6fa4c229f1158d5c42a96451fffdea929331d3cbe5b8",
     "licenseEntry": "mihomo-3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8/LICENSE"
+  },
+  "darwinArm64": {
+    "name": "mihomo-darwin-arm64-v1.19.33.gz",
+    "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/mihomo-darwin-arm64-v1.19.33.gz",
+    "sha256": "060b64b0f2c9a310831db0fe4adb2878de67bfa606c311813c1f13966aa504b6"
   }
 }

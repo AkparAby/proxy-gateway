@@ -12,18 +12,18 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 )
 
 type Core struct {
-	secret string
-	dir    string
-	client *http.Client
-	mu     sync.Mutex
-	cmd    *exec.Cmd
-	done   chan error
-	log    *os.File
+	executable string
+	secret     string
+	dir        string
+	client     *http.Client
+	mu         sync.Mutex
+	cmd        *exec.Cmd
+	done       chan error
+	log        *os.File
 }
 
 func (c *Core) request(ctx context.Context, method, path string, data any, out any) error {
@@ -63,10 +63,10 @@ func (c *Core) start(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
-	cmd := exec.Command(filepath.Join(c.dir, "mihomo.exe"), "-d", c.dir, "-f", filepath.Join(c.dir, "config.json"))
+	cmd := exec.Command(c.executable, "-d", c.dir, "-f", filepath.Join(c.dir, "config.json"))
 	cmd.Stdout = logfile
 	cmd.Stderr = logfile
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	configureCommand(cmd)
 	if e = cmd.Start(); e != nil {
 		logfile.Close()
 		return e

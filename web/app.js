@@ -1,14 +1,7 @@
 let state, loaded = false, busy = false, draft = [], noticeTimer;
 const $ = selector => document.querySelector(selector);
 const form = $('#settings');
-const apps = [
-  ['system', 'Windows 系统代理', '浏览器、桌面应用及 Docker 的“系统代理”模式。'],
-  ['terminal', '终端与新启动的子进程', '用户级 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY，重新打开程序生效。'],
-  ['git', 'Git HTTPS', '配置当前用户的 Git HTTP 代理，私有 IP 仓库直连。'],
-  ['docker', 'Docker 构建与容器', '配置 Docker CLI 的构建/新容器代理；镜像拉取仍需 Desktop 系统代理。'],
-  ['wsl', 'WSL Ubuntu', '安装可启停的 shell 接入文件，自动发现 Windows 主机地址。'],
-  ['autostart', '登录后启动网关', '只启动本地网关；已配置的代理客户端仍需保持运行。'],
-];
+let apps = [], appSignature = "";
 function element(tag, text, className) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -118,6 +111,7 @@ function controls() {
 function display(status) {
   if (!Array.isArray(status.config.outbounds)) throw Error('版本不匹配，请升级网关后刷新页面');
   state = status;
+  renderIntegrations(status.integrationOptions || []);
   $('#connection').textContent = '网关运行中'; $('#connection').className = 'pill ok';
   $('#version').textContent = status.version || '';
   document.body.classList.remove('offline');
@@ -171,6 +165,11 @@ async function act(fn) {
   catch (error) { notice(error.message, true); }
   finally { busy = false; controls(); }
 }
+function renderIntegrations(options) {
+  const signature = JSON.stringify(options);
+  if (signature === appSignature) return;
+  appSignature = signature; apps = options;
+  $('#integrations').replaceChildren();
 for (const [key, title, description] of apps) {
   const row = element('div', undefined, 'integration'), text = element('div');
   text.append(element('strong', title), element('p', description));
@@ -180,6 +179,8 @@ for (const [key, title, description] of apps) {
     notice(result.message || '已完成');
   }));
   row.append(text, button); $('#integrations').append(row);
+}
+
 }
 $('#add-outbound').onclick = () => {
   if (busy || draft.length >= 16) return;

@@ -40,7 +40,7 @@ async function relay(target) {
 async function https(proxy, succeeds = true) {
   let ok = false;
   try {
-    const result = await run('curl.exe', ['--proxy', proxy, '--noproxy', '', '--max-time', '10', '--fail', '-sS', '-o', 'NUL', '-w', '%{http_code}', 'https://www.gstatic.com/generate_204']);
+    const result = await run(process.platform === 'win32' ? 'curl.exe' : 'curl', ['--proxy', proxy, '--noproxy', '', '--max-time', '10', '--fail', '-sS', '-o', process.platform === 'win32' ? 'NUL' : '/dev/null', '-w', '%{http_code}', 'https://www.gstatic.com/generate_204']);
     ok = result.stdout === '204';
   } catch { }
   if (ok !== succeeds) throw Error(`Unexpected HTTPS result (${proxy}): ${ok}`);

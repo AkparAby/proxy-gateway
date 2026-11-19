@@ -11,17 +11,19 @@ import (
 )
 
 func TestLaunchOptions(t *testing.T) {
-	executable := `C:\Apps\Proxy Gateway\proxy-gateway.exe`
+	executable := filepath.Join(t.TempDir(), "proxy-gateway")
+	wantRoot, _ := defaultDataRoot(executable)
+	customRoot := t.TempDir()
 	options, err := parseLaunchOptions(executable, nil)
-	if err != nil || options.background || options.root != filepath.Dir(executable) {
+	if err != nil || options.background || options.root != wantRoot {
 		t.Fatal(options, err)
 	}
-	options, err = parseLaunchOptions(executable, []string{"--background", `D:\custom data`})
-	if err != nil || !options.background || options.root != `D:\custom data` {
+	options, err = parseLaunchOptions(executable, []string{"--background", customRoot})
+	if err != nil || !options.background || options.root != customRoot {
 		t.Fatal(options, err)
 	}
-	options, err = parseLaunchOptions(executable, []string{`D:\legacy root`})
-	if err != nil || options.root != `D:\legacy root` {
+	options, err = parseLaunchOptions(executable, []string{customRoot})
+	if err != nil || options.root != customRoot {
 		t.Fatal("legacy root argument broke", err)
 	}
 	for _, args := range [][]string{{"--unknown"}, {"one", "two"}} {

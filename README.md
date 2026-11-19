@@ -1,14 +1,15 @@
 # Proxy Gateway · 本地代理网关
 
-**给 Windows 应用一个固定代理入口，在多个本地代理客户端之间按优先级自动切换。**
+**给 Windows 和 macOS 应用一个固定代理入口，在多个本地代理客户端之间按优先级自动切换。**
 
 [![Release](https://img.shields.io/github/v/release/AkparAby/proxy-gateway)](https://github.com/AkparAby/proxy-gateway/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Windows-x64-0078D4)](https://github.com/AkparAby/proxy-gateway/releases/latest)
+[![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)](https://github.com/AkparAby/proxy-gateway/releases/latest)
+[![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple_Silicon-333333)](https://github.com/AkparAby/proxy-gateway/releases/latest)
 
 Proxy Gateway 使用 **Go 管理程序 + 独立 Mihomo 内核**，提供中文 Web 管理页。支持添加 1–16 个本机 HTTP / SOCKS5 代理出口，自定义名称并调整优先级。应用始终连接同一地址，网关负责检测出口、故障切换和恢复回切。
 
-[下载 Windows 便携版](https://github.com/AkparAby/proxy-gateway/releases/latest) · [报告问题](https://github.com/AkparAby/proxy-gateway/issues) · [许可证说明](THIRD_PARTY_NOTICES.md)
+[下载 Windows / macOS 版](https://github.com/AkparAby/proxy-gateway/releases/latest) · [报告问题](https://github.com/AkparAby/proxy-gateway/issues) · [许可证说明](THIRD_PARTY_NOTICES.md)
 
 ## 能做什么
 
@@ -16,8 +17,8 @@ Proxy Gateway 使用 **Go 管理程序 + 独立 Mihomo 内核**，提供中文 W
 - **多个代理出口**：添加、删除、改名和上下调整优先级，可连接不同软件提供的本机 HTTP / SOCKS5 端口。
 - **自动故障切换**：通过每个出口实际访问 HTTPS 地址，连续失败后按优先级选择健康备用，减少偶发波动导致的切换。
 - **可选回切策略**：更高优先级出口稳定恢复后自动切回，或保持当前出口、手动切回首选；也支持固定任一出口。
-- **按需接入**：分别启用 Windows 系统代理、终端环境变量、Git HTTPS、Docker Desktop、WSL Ubuntu。
-- **便携运行**：Release 包含 EXE、内核和必要脚本，无需安装 Go、Node.js 或 Python。
+- **按需接入**：Windows 支持系统代理、终端、Git、Docker 和 WSL；macOS 支持系统代理、Git 和登录自启动。
+- **下载即用**：Windows 提供 EXE 便携包；macOS 提供带图标的 `.app`。均附带内核，无需安装 Go、Node.js 或 Python。
 - **可恢复设置**：接入功能保存原值；可逐项停用恢复，或恢复后停止网关。可选当前用户登录自启动。
 
 这是主备故障切换工具，目前不做流量轮询、带宽叠加或已有连接的无缝迁移。
@@ -42,11 +43,18 @@ flowchart LR
 
 ### 1. 下载并解压
 
-在 [Releases](https://github.com/AkparAby/proxy-gateway/releases/latest) 下载 `proxy-gateway-vX.Y.Z-windows-amd64.zip`，**完整解压**到当前用户可写的固定目录，例如 `D:\Apps\ProxyGateway`。不要直接在压缩包内运行，也不要只复制 EXE。
+在 [Releases](https://github.com/AkparAby/proxy-gateway/releases/latest) 选择对应平台的完整运行包：
 
-- 运行环境：Windows 10/11 x64、系统自带 Windows PowerShell 5.1 或 PowerShell 7。
-- 暂不提供 Windows ARM64、Linux 或 macOS 版本。
-- 首次运行没有已启用的接入项或自启动设置；配置会在本机生成。
+| 平台 | 下载文件 | 要求 |
+|---|---|---|
+| Windows x64 | `proxy-gateway-vX.Y.Z-windows-amd64.zip` | Windows 10/11，系统自带 PowerShell 5.1 或 PowerShell 7 |
+| macOS Apple 芯片 | `proxy-gateway-vX.Y.Z-macos-arm64.zip` | Apple Silicon（M 系列），macOS 12 或更新版本 |
+
+**Windows：** 完整解压到用户可写的固定目录，例如 `D:\Apps\ProxyGateway`。不要在压缩包内运行或只复制 EXE。
+
+**macOS：** 解压后将 **Proxy Gateway.app** 拖入“应用程序”文件夹，再双击打开。只提供 Apple 芯片版，不提供 Intel 版。应用已做本地 ad-hoc 签名，**没有 Apple Developer ID 签名和公证**；如果首次打开被阻止，确认来源为本仓库 Release 后，按 [Apple 官方说明](https://support.apple.com/en-us/102445) 到“系统设置 → 隐私与安全 → 仍要打开”允许这个应用。不要关闭整个系统的 Gatekeeper。
+
+首次运行会在本机生成默认配置，所有接入项和登录自启动默认关闭。网关不会自动接管系统代理。
 
 ### 2. 准备代理客户端
 
@@ -65,23 +73,29 @@ flowchart LR
 
 ### 3. 启动网关
 
-双击 **`proxy-gateway.exe`**，它会启动网关并自动打开默认浏览器中的管理页。`Start-Gateway.cmd` 也可使用：
+Windows 双击 **`proxy-gateway.exe`**（也可使用 `Start-Gateway.cmd`）；macOS 双击 **`Proxy Gateway.app`**。程序启动后会自动打开默认浏览器中的管理页：
 
 - 管理页：<http://127.0.0.1:17880>
 - 统一代理：`127.0.0.1:17890`
 
-也可以在解压目录执行：
+Windows 也可以在解压目录执行：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-Gateway.ps1 -OpenDashboard
 ```
 
-网关已运行时再次双击 EXE，会打开现有管理页，不会重复启动内核。EXE 内嵌多尺寸网关图标，无需额外放置图标文件。关闭管理页不会停止网关。
+网关已运行时再次双击 EXE 或 `.app`，会打开现有管理页，不会重复启动内核。两种版本都内嵌网关图标。macOS 不常驻 Dock 图标；关闭管理页不会停止后台网关，退出请使用管理页底部的“恢复接入设置并停止”。
 
 需要静默启动时使用：
 
 ```powershell
 .\proxy-gateway.exe --background
+```
+
+macOS 在终端静默启动（应用放在默认安装位置时）：
+
+```sh
+"/Applications/Proxy Gateway.app/Contents/Resources/proxy-gateway" --background
 ```
 
 ### 4. 添加出口、调整优先级并接入应用
@@ -99,7 +113,7 @@ SOCKS5 代理：socks5h://127.0.0.1:17890
 
 ### 5. 可选：登录自启动
 
-在管理页启用“登录后启动网关”，之后当前 Windows 用户登录时在后台自动启动，不弹出浏览器。各出口客户端的自启动和自动连接需要分别设置。启用后请保留解压目录的路径；移动目录前先停用自启动，再在新目录重新启用。
+在管理页启用“登录后启动网关”，之后当前系统用户登录时在后台自动启动，不弹出浏览器。各出口客户端的自启动和自动连接需要分别设置。Windows 使用当前用户的登录启动项；macOS 使用用户级 LaunchAgent，下次登录时生效。启用后请保留程序路径；移动目录或应用前先停用自启动，再在新位置重新启用。macOS 如提示后台项目被禁用，请在系统的登录项设置中允许 Proxy Gateway。
 
 ## 默认策略与边界
 
@@ -124,25 +138,39 @@ SOCKS5 代理：socks5h://127.0.0.1:17890
 
 | 接入项 | 修改范围 | 生效条件 / 限制 |
 |---|---|---|
-| Windows 系统代理 | 当前用户的 Windows 系统代理 | 适用于遵循系统代理的浏览器和桌面应用；不是所有应用都会使用它 |
-| 终端与子进程 | 用户级 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` | 重新打开终端或应用，且程序本身支持这些变量 |
+| Windows 系统代理（Windows） | 当前用户的 Windows 系统代理 | 适用于遵循系统代理的浏览器和桌面应用；不是所有应用都会使用它 |
+| 终端与子进程（Windows） | 用户级 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` | 重新打开终端或应用，且程序本身支持这些变量 |
+| macOS 系统代理（macOS） | 当前启用网络服务的 HTTP / HTTPS / SOCKS 代理，以及 PAC / 自动发现开关 | macOS 会请求管理员授权；绕过列表和 PAC 地址保持原值。新增网络服务需停用再启用；带认证的原代理请手动接入 |
 | Git HTTPS | 当前用户 Git 的 `http.proxy` | HTTP(S) 仓库生效；Git SSH 需自行配置 |
-| Docker Desktop | Docker CLI 的 `proxies.default` 及 Desktop 代理模式 | 需要已安装并初始化 Docker Desktop，同时启用网关的系统代理接入；修改后重启 Desktop |
-| WSL Ubuntu | Ubuntu 的 shell 环境文件与加载行 | 面向名为 `Ubuntu` 的发行版和 NAT 网络；新 shell 生效 |
+| Docker Desktop（Windows 按钮） | Docker CLI 的 `proxies.default` 及 Desktop 代理模式 | 需要已安装并初始化 Docker Desktop，同时启用网关的系统代理接入；修改后重启 Desktop |
+| WSL Ubuntu（仅 Windows） | Ubuntu 的 shell 环境文件与加载行 | 面向名为 `Ubuntu` 的发行版和 NAT 网络；新 shell 生效 |
 
 浏览器或 Codex 等桌面应用是否走网关，还取决于应用自己的代理选项和环境。系统代理不是“所有没有独立配置的应用一定使用”的强制路由机制。
 
-**Docker：** 新构建和新建容器使用 `host.docker.internal:17890`；已运行容器不自动更新，容器内程序也要支持代理环境变量。网关不会自动重启 Docker Desktop。自定义网络、构建器或 Linux Docker Engine 需要另行验证。
+**Windows Docker 按钮：** 新构建和新建容器使用 `host.docker.internal:17890`；已运行容器不自动更新，容器内程序也要支持代理环境变量。网关不会自动重启 Docker Desktop。自定义网络、构建器或 Linux Docker Engine 需要另行验证。
 
-**WSL：** 启用后通过默认路由寻找 Windows 主机，并在 WSL 虚拟网卡建立受子网限制的转发入口；不绑定物理网卡。镜像网络和其他发行版不在当前接入脚本的支持范围内。现有 Ubuntu shell 可执行：
+**Windows WSL：** 启用后通过默认路由寻找 Windows 主机，并在 WSL 虚拟网卡建立受子网限制的转发入口；不绑定物理网卡。镜像网络和其他发行版不在当前接入脚本的支持范围内。现有 Ubuntu shell 可执行：
 
 ```sh
 . ~/.config/local-proxy-gateway/env.sh
 ```
 
+**macOS 终端：** 在需要代理的终端会话中执行以下命令。可按需添加到自己的 `~/.zshrc`，网关不会修改 shell 启动文件。
+
+```sh
+export HTTP_PROXY=http://127.0.0.1:17890
+export HTTPS_PROXY=http://127.0.0.1:17890
+export ALL_PROXY=socks5h://127.0.0.1:17890
+export NO_PROXY=localhost,127.0.0.1,::1
+```
+
+撤销当前会话设置：`unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY`。如果之前已有这些变量，恢复原值即可。GUI 应用不一定继承终端变量，可使用系统代理或应用自己的代理设置。
+
+**macOS Docker Desktop：** 可在 Desktop 的代理设置中选择系统代理（网关已启用 macOS 系统代理时），或手动填写 `http://127.0.0.1:17890`；构建器、镜像拉取和容器环境是不同配置范围，需要分别验证。Mac 版暂不自动配置容器代理，也不开放局域网监听。
+
 ## 文件、停止与升级
 
-便携包包含：
+Windows 便携包包含：
 
 ```text
 proxy-gateway-vX.Y.Z-windows-amd64/
@@ -158,15 +186,25 @@ proxy-gateway-vX.Y.Z-windows-amd64/
 └── THIRD_PARTY_NOTICES.md
 ```
 
-运行后才会生成 `config.json`、`runtime/*.json`、日志和内核缓存。Release **不包含发布者的本机配置、日志、状态、备份、订阅或凭据**。需要核对下载完整性时，可将以下结果与 Release 附带的 `SHA256SUMS.txt` 比较：
+macOS 包包含 `Proxy Gateway.app`、`Restore-Proxy.command`、README、许可证和发布清单；管理程序、Mihomo 与图标均封装在应用内。**Mac 的配置与日志保存在 `~/Library/Application Support/Proxy Gateway/`**，不写入应用包：
+
+- `config.json`：你的出口与切换策略。
+- `runtime/`：接入恢复记录、日志和内核临时文件。
+- `~/Library/LaunchAgents/io.github.AkparAby.proxy-gateway.plist`：仅启用登录自启动后创建。
+
+Windows 的配置保存在解压目录。运行后才会生成 `config.json`、`runtime/*.json`、日志和内核缓存。Release **不包含发布者的本机配置、日志、状态、备份、订阅或凭据**。需要核对下载完整性时，可将以下结果与 Release 附带的 `SHA256SUMS.txt` 比较：
 
 ```powershell
 Get-FileHash .\proxy-gateway-vX.Y.Z-windows-amd64.zip -Algorithm SHA256
 ```
 
 - **正常停止：** 在管理页点击“恢复接入设置并停止”。这也会撤销网关管理的登录自启动；下次需要时重新启用。
-- **应急恢复：** 管理页无法打开时，双击 `Restore-Proxy.cmd`。它恢复此前由此目录中的网关接管的设置，本身不终止进程。恢复需要保留 `runtime/integrations-state.json`，不要提前删除运行目录。
-- **升级：** 在旧版管理页恢复接入设置并停止 → 备份自己的 `config.json` → 将新版解压到新目录 → 复制自己的 `config.json` 到新目录 → 启动并重新启用所需接入项。不要复制旧版的日志、内核临时配置或接入状态到新包。
+- **Windows 应急恢复：** 管理页无法打开时，双击 `Restore-Proxy.cmd`。它恢复此前由此目录中的网关接管的设置，本身不终止进程。恢复需要保留 `runtime/integrations-state.json`，不要提前删除运行目录。
+- **Windows 升级：** 在旧版管理页恢复接入设置并停止 → 备份自己的 `config.json` → 将新版解压到新目录 → 复制自己的 `config.json` 到新目录 → 启动并重新启用所需接入项。不要复制旧版的日志、内核临时配置或接入状态到新包。
+
+- **macOS 应急恢复：** 双击包里的 `Restore-Proxy.command`，或在终端运行 `"/Applications/Proxy Gateway.app/Contents/Resources/proxy-gateway" --restore`。程序运行中也可恢复；恢复本身不终止网关。若网络服务原本没有代理地址，恢复时会关闭该代理，输入框可能仍保留网关地址，不影响直连。
+- **macOS 升级：** 先在管理页恢复接入设置并停止 → 备份用户目录的 `config.json` → 替换应用程序文件夹中的 `Proxy Gateway.app` → 打开并重新启用接入项。已有出口配置会保留。卸载前同样先恢复；需要保留设置时不要删除用户数据目录。
+- **macOS 校验：** `shasum -a 256 proxy-gateway-vX.Y.Z-macos-arm64.zip`，与 Release 的 `SHA256SUMS.txt` 比较。
 
 从 v0.1.x 升级时，程序会自动将原有 SpeedCat / Clash 配置迁移为可编辑的出口列表，保留端口、协议、主出口顺序、固定模式和检测策略，并将原始配置备份到本机 `backups/config-v1-*.json`。备份不进入 Release。迁移后的配置不能直接给旧版读取；回退时请恢复旧配置备份。
 
@@ -176,11 +214,11 @@ Get-FileHash .\proxy-gateway-vX.Y.Z-windows-amd64.zip -Algorithm SHA256
 
 **启动后没有窗口？**
 
-管理程序没有独立桌面窗口，界面在默认浏览器里。双击 EXE 或 `Start-Gateway.cmd` 会自动打开管理页；登录自启动和 `--background` 模式不弹浏览器。也可手动访问 <http://127.0.0.1:17880>。
+管理程序没有独立桌面窗口，界面在默认浏览器里。双击 EXE、`Start-Gateway.cmd` 或 Mac 的 `.app` 会自动打开管理页；登录自启动和 `--background` 模式不弹浏览器。也可手动访问 <http://127.0.0.1:17880>。
 
 **启动失败或管理页打不开？**
 
-确认完整解压且目录可写，检查 `17880`、`17881`、`17890` 是否被其他程序占用。查看 `runtime/gateway.log` 和 `runtime/mihomo.log`；文件缺失时重新解压完整包。一个 Windows 实例只运行一套网关。
+确认完整解压且目录可写，检查 `17880`、`17881`、`17890` 是否被其他程序占用。查看 `runtime/gateway.log` 和 `runtime/mihomo.log`；文件缺失时重新解压完整包。每台机器只运行一套网关。Mac 的日志在上述用户数据目录中，另有 `runtime/launcher.log`。
 
 **所有出口都显示不可用？**
 
@@ -188,7 +226,7 @@ Get-FileHash .\proxy-gateway-vX.Y.Z-windows-amd64.zip -Algorithm SHA256
 
 **开启系统代理后有些应用仍不走网关？**
 
-检查应用是否遵循 Windows 系统代理、是否另有代理设置，或改用终端环境变量和应用自带的代理选项。已有进程可能仍保留旧环境，需要重新启动。
+检查应用是否遵循系统代理、是否另有代理设置，或改用终端环境变量和应用自带的代理选项。已有进程可能仍保留旧环境，需要重新启动。
 
 **内核退出后会自动恢复吗？**
 
@@ -196,19 +234,29 @@ Get-FileHash .\proxy-gateway-vX.Y.Z-windows-amd64.zip -Algorithm SHA256
 
 ## 开发与打包
 
-开发需要 **Windows、Go 1.26+、Git 和 PowerShell 7**。管理页使用原生 HTML/CSS/JavaScript，无前端构建依赖。
+开发需要 **Go 1.26、Git**；Windows 打包需要 PowerShell 7；macOS 打包需要 Apple 芯片 Mac 和系统的 `sips` / `iconutil` / `codesign` 工具。管理页使用原生 HTML/CSS/JavaScript，无前端构建依赖。
 
 ```powershell
 git clone https://github.com/AkparAby/proxy-gateway.git
 cd proxy-gateway
 go test ./...
 go vet ./...
-pwsh -NoProfile -File .\scripts\package-release.ps1 -Version v0.2.1
+pwsh -NoProfile -File .\scripts\package-release.ps1 -Version v0.3.0
 ```
 
-打包脚本要求 Git 工作区干净，输出到 `dist/<版本>/`。它按 `scripts/mihomo.lock.json` 下载固定版本内核和对应源码，校验 SHA-256，构建 Windows x64 EXE，再按文件白名单生成 ZIP、源码附件和 `SHA256SUMS.txt`。已存在的版本目录不会被覆盖。
+macOS 本机构建：
 
-在解压的开发包中运行。修改 Go 或 `web/` 后，可重新构建并替换已停止的管理程序：
+```sh
+go test -race ./...
+go vet ./...
+go run scripts/package-macos.go -version v0.3.0
+```
+
+也可在 GitHub Actions 手动运行 **macOS Apple Silicon** 工作流，输入版本号。工作流在 `macos-15` Apple 芯片运行器上构建、执行原生测试、解压验证 `.app`，并演练 HTTP / SOCKS5 转发与多出口故障切换；下载其 `macos-arm64-release` Artifact 中的 ZIP。
+
+打包脚本要求 Git 工作区干净，输出到 `dist/<版本>/`。它按 `scripts/mihomo.lock.json` 下载固定版本内核和对应源码，校验 SHA-256，构建对应平台的可执行文件，按显式文件列表生成 ZIP、源码附件和 `SHA256SUMS.txt`。已有打包目录不会被覆盖；Mac ZIP 保留可执行权限，并做 ad-hoc 签名验证。
+
+Windows 在解压的开发包中运行。修改 Go 或 `web/` 后，可重新构建并替换已停止的管理程序：
 
 ```powershell
 go build -trimpath -ldflags '-H=windowsgui' -o proxy-gateway.exe .
@@ -222,6 +270,6 @@ Windows 图标资源 `rsrc_windows_amd64.syso` 已包含在源码仓库中，普
 
 ## 贡献与许可证
 
-欢迎提交 [Issue](https://github.com/AkparAby/proxy-gateway/issues) 或 Pull Request。报告问题时请提供版本、Windows 版本、复现步骤和脱敏日志，不要提交订阅、令牌、账号信息、`config.json` 或完整 `runtime/` 目录。
+欢迎提交 [Issue](https://github.com/AkparAby/proxy-gateway/issues) 或 Pull Request。报告问题时请提供软件版本、操作系统版本和芯片架构、复现步骤和脱敏日志，不要提交订阅、令牌、账号信息、`config.json` 或完整 `runtime/` 目录。
 
 项目管理程序、页面和脚本采用 [MIT License](LICENSE)。便携包中的独立 [Mihomo](https://github.com/MetaCubeX/mihomo) 内核采用 GPL-3.0，保留其原许可证，并在同一 Release 提供对应版本的源码附件；MIT 许可证不替代第三方许可证。详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

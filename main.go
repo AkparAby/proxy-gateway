@@ -12,10 +12,9 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -151,7 +150,7 @@ func (m *Manager) status() map[string]any {
 	for id, value := range m.health {
 		health[id] = value
 	}
-	return map[string]any{"version": version, "commit": commit, "config": m.config, "health": health, "selected": m.selected, "reason": m.reason, "error": m.lastError, "events": append([]Event(nil), m.events...), "token": m.token, "proxy": "127.0.0.1:17890", "dashboard": "http://127.0.0.1:17880", "integrations": integrations}
+	return map[string]any{"version": version, "commit": commit, "config": m.config, "health": health, "selected": m.selected, "reason": m.reason, "error": m.lastError, "events": append([]Event(nil), m.events...), "token": m.token, "proxy": "127.0.0.1:17890", "dashboard": "http://127.0.0.1:17880", "integrations": integrations, "platform": runtime.GOOS, "integrationOptions": integrationOptions()}
 }
 func (m *Manager) saveConfig(ctx context.Context, c Config) error {
 	if e := c.validate(); e != nil {
@@ -235,17 +234,10 @@ func (m *Manager) integrate(ctx context.Context, name string, enabled bool) (str
 			return err.Error(), err
 		}
 	}
-	shell, err := exec.LookPath("pwsh.exe")
-	if err != nil {
-		shell = "powershell.exe"
-	}
-	cmd := exec.CommandContext(ctx, shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(m.root, "scripts", "integrations.ps1"), "-Action", name, "-Mode", mode, "-Root", m.root)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	b, e := cmd.CombinedOutput()
+	text, err := runIntegration(ctx, m.root, name, enabled)
 	_ = m.bridges.sync(m.root, false)
-	text := strings.TrimSpace(string(b))
-	if e != nil {
-		return text, fmt.Errorf("%s", text)
+	if err != nil {
+		return err.Error(), err
 	}
 	m.mu.Lock()
 	m.event(fmt.Sprintf("应用接入 %s：%s", name, mode))
@@ -313,7 +305,7 @@ func (m *Manager) serve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": e.Error()})
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 		defer cancel()
 		output, e := m.integrate(ctx, data.Name, data.Enabled)
 		if e != nil {
@@ -322,7 +314,7 @@ func (m *Manager) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, map[string]string{"message": output})
 	case r.URL.Path == "/api/stop" && r.Method == "POST":
-		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 		_, e := m.integrate(ctx, "restore", false)
 		cancel()
 		if e != nil {
@@ -362,6 +354,13 @@ func run() error {
 		return e
 	}
 	root := options.root
+	if options.restore {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		output, err := restoreFromCLI(ctx, root)
+		fmt.Println(output)
+		return err
+	}
 	listener, e := net.Listen("tcp4", "127.0.0.1:17880")
 	if e != nil {
 		client := dashboardClient()
@@ -394,7 +393,7 @@ func run() error {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	core := &Core{secret: nonce(), dir: filepath.Join(root, "runtime"), client: &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 15 * time.Second}}
+	core := &Core{executable: coreExecutable(exe, root), secret: nonce(), dir: filepath.Join(root, "runtime"), client: &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 15 * time.Second}}
 	if e = atomicJSON(filepath.Join(core.dir, "config.json"), coreConfig(conf, core.secret)); e != nil {
 		return e
 	}
@@ -469,6 +468,7 @@ func run() error {
 func main() {
 	if e := run(); e != nil {
 		log.Print(e)
+		reportLaunchError(e)
 		os.Exit(1)
 	}
 }
