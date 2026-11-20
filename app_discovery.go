@@ -92,6 +92,9 @@ func applicationsAt(locations applicationLocations) []routing.Application {
 			app.Detail = "已自动识别，无需填写代理地址或程序路径"
 		}
 		for _, running := range locations.RunningPaths {
+			if resolved, err := filepath.EvalSymlinks(running); err == nil {
+				running = resolved
+			}
 			if _, ok := paths[processKey(running)]; ok {
 				app.Running = true
 			}

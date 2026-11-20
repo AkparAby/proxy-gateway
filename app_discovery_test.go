@@ -48,13 +48,33 @@ func TestApplicationDiscoveryAcrossMachines(t *testing.T) {
 		if err = resolved.validate(); err != nil {
 			t.Fatal(err)
 		}
-		if !slices.Contains(resolved.AppRules[0].ProcessPaths, filepath.Join(codex, "Codex.exe")) {
+		expectedPath, err := filepath.EvalSymlinks(filepath.Join(codex, "Codex.exe"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(resolved.AppRules[0].ProcessPaths, expectedPath) {
 			t.Fatal("kept another computer's path")
 		}
 		if c.AppRules[0].ProcessPaths[0] != `C:\OtherComputer\Codex.exe` {
 			t.Fatal("mutated input config")
 		}
 		first = resolved
+	}
+}
+
+func TestRunningApplicationThroughSymlink(t *testing.T) {
+	root := t.TempDir()
+	installFixture(t, root, filepath.Join("app", "Codex.exe"))
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(filepath.Join(root, "app"), alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	apps := applicationsAt(applicationLocations{
+		CodexDesktop: []string{filepath.Join(root, "app")},
+		RunningPaths: []string{filepath.Join(alias, "Codex.exe")},
+	})
+	if !apps[0].Available || !apps[0].Running {
+		t.Fatal("running app was not matched through its canonical path", apps[0])
 	}
 }
 
