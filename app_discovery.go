@@ -18,6 +18,9 @@ type applicationLocations struct {
 	CodexCLI      []string
 	ClaudeCLI     []string
 	RunningPaths  []string
+	// Executables contains exact native paths identified from platform metadata.
+	// Their on-disk names need not match the application's display name.
+	Executables map[string][]string
 }
 
 func discoverApplications(ctx context.Context) ([]routing.Application, error) {
@@ -36,6 +39,18 @@ func applicationsAt(locations applicationLocations) []routing.Application {
 	for i := range apps {
 		app := &apps[i]
 		paths := map[string]string{}
+		for _, path := range locations.Executables[app.ID] {
+			if resolved, err := filepath.EvalSymlinks(path); err == nil {
+				path = resolved
+			}
+			info, err := os.Stat(path)
+			if err != nil || !info.Mode().IsRegular() {
+				continue
+			}
+			if absolute, err := filepath.Abs(path); err == nil {
+				paths[processKey(absolute)] = absolute
+			}
+		}
 		visited := map[string]bool{}
 		for _, root := range roots[i] {
 			if root == "" || visited[processKey(root)] {

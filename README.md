@@ -30,6 +30,12 @@ Proxy Gateway 使用 **MyGo 原生桌面界面、独立 Go 管理程序和 Mihom
 
 ![MyGo 左侧导航与网络概览（示例数据）](docs/images/mygo-overview.png)
 
+### v0.5.1 更新
+
+- 修复 macOS 未识别 Codex 桌面版和 CLI：按应用标识识别桌面版，兼容保留同一标识的 `ChatGPT.app`、改名或移动后的应用、运行中的临时挂载应用。
+- 支持直接下载的 `codex` / `codex-aarch64-apple-darwin` / `codex-x86_64-apple-darwin`，以及 Homebrew、npm / nvm 和常见用户目录中的原生 CLI；从 Finder 启动也可发现。
+- 自动解析符号链接并识别桌面辅助进程；扫描不执行 CLI、Shell 配置或安装脚本，不把共享 Node / Python 进程绑定为某个应用。
+
 ### v0.5.0 更新
 
 - Windows 和 Apple 芯片 Mac 安装包统一使用 MyGo 新界面，改善滚动和网关启停状态提示，统一窗口与托盘图标。
@@ -161,7 +167,9 @@ SOCKS5 代理：socks5h://127.0.0.1:17890
 
 在桌面“应用接入 → 选择应用”（或“绑定 Codex / Claude”）选择已安装的应用和代理客户端，点击“添加到设置”，再点击“保存全部设置”。Web 页提供同样的应用选择。**常规操作不需要填写 HTTP 地址或查找程序路径。**
 
-网关会在运行它的电脑上读取安装信息、常见安装目录、命令行入口和正在运行的程序，分别识别 Codex 桌面版、Codex CLI、Claude 桌面版、Claude Code CLI。Windows 支持微软商店应用、常见用户安装、npm 原生 CLI 和 `.local/bin` 原生 CLI；特殊便携目录可先打开应用再刷新。共享 `node.exe` 的旧版纯 JavaScript CLI 不会被当作独立原生应用绑定。macOS 当前自动发现标准 Applications 目录中的桌面应用。
+网关会在运行它的电脑上读取安装信息、常见安装目录、命令行入口和正在运行的程序，分别识别 Codex 桌面版、Codex CLI、Claude 桌面版、Claude Code CLI。Windows 支持微软商店应用、常见用户安装、npm 原生 CLI 和 `.local/bin` 原生 CLI。macOS 按 Bundle ID 识别 Applications 中的桌面应用，并通过 Spotlight 和运行进程补充非标准位置；同一 Codex 应用改名为 `ChatGPT.app` 后也可识别。CLI 支持 Homebrew、npm / nvm、常见 `bin` 目录和 Downloads 中的独立可执行文件，包括带 `apple-darwin` 架构后缀的 Codex。任意便携目录可先打开应用或运行 CLI，再刷新列表。扫描不会执行 CLI 或 Shell 配置，共享 Node / Python 等运行时及纯脚本不会被当作独立原生应用绑定。
+
+**macOS CLI 接入边界：** 识别到 CLI 表示已找到它的真实程序路径，不代表终端流量已进入网关。当前 macOS 版没有自动设置终端代理环境；CLI 仍需已通过代理环境或自己的代理配置接入网关，固定规则才会命中。桌面版的系统代理接入保持自动设置。
 
 自动绑定保存应用身份，保存设置及网关启动时重新识别本机的实际程序，覆盖旧电脑或旧版本的路径。无法识别时显示“未检测到”，不会把绑定显示成已生效。“刷新应用列表”可重新扫描，保存规则时应用最新结果。
 
