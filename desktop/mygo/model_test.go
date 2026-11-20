@@ -197,6 +197,25 @@ func TestApplicationPickerAndExitFlow(t *testing.T) {
 	}
 }
 
+func TestMacCLIRuleReportsObservedConnectionsWithoutPromisingAutoAccess(t *testing.T) {
+	m, _, _ := testModel(t)
+	m.status.Platform = "darwin"
+	delete(m.status.Integrations, "terminal")
+	rule := m.draft.AppRules[0]
+	rule.ApplicationID = "claude-cli"
+	observed := m.status.AppStatus[rule.ID]
+	observed.ActiveConnections = 0
+	m.status.AppStatus[rule.ID] = observed
+	if status := m.ruleStatus(rule); !strings.Contains(status, "尚未自动配置终端接入") || strings.Contains(status, "保存此规则时会自动配置") {
+		t.Fatal("Mac CLI discovery must not promise automatic terminal configuration", status)
+	}
+	observed.ActiveConnections = 2
+	m.status.AppStatus[rule.ID] = observed
+	if status := m.ruleStatus(rule); !strings.Contains(status, "已命中固定代理") {
+		t.Fatal("actual CLI traffic was hidden by missing terminal integration state", status)
+	}
+}
+
 type saveAPI struct {
 	status client.Status
 	posts  int

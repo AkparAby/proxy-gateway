@@ -112,7 +112,11 @@ func (m *model) ruleStatus(r routing.AppRule) string {
 		} else if m.status.Platform == "windows" {
 			access = access && m.status.Integrations["terminal"]
 		}
-		if !access {
+		if m.status.Platform == "darwin" && strings.HasSuffix(r.ApplicationID, "-cli") {
+			if m.status.AppStatus[r.ID].ActiveConnections == 0 {
+				return "已识别 CLI；Mac 版尚未自动配置终端接入，流量进入网关后才会命中固定规则。"
+			}
+		} else if !access {
 			return "接入尚未完成，保存此规则时会自动配置。"
 		}
 	}

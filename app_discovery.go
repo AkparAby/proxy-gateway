@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -105,6 +106,9 @@ func applicationsAt(locations applicationLocations) []routing.Application {
 		app.Detail = "未检测到安装，请安装或打开应用后刷新列表"
 		if app.Available {
 			app.Detail = "已自动识别，无需填写代理地址或程序路径"
+			if runtime.GOOS == "darwin" && app.Kind == "cli" {
+				app.Detail = "已识别 CLI；终端流量进入网关后才会使用固定代理"
+			}
 		}
 		for _, running := range locations.RunningPaths {
 			if resolved, err := filepath.EvalSymlinks(running); err == nil {

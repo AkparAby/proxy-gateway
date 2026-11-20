@@ -96,8 +96,10 @@ function renderAppStatus(status) {
       if (rule.match === 'application') {
         const app=(status.applications || []).find(a=>a.id===rule.applicationId);
         const access=rule.applicationId.endsWith('-cli') ? status.integrations?.terminal : status.integrations?.system && (status.platform!=='windows' || status.integrations?.terminal);
+        const macCLI=status.platform==='darwin' && rule.applicationId.endsWith('-cli');
         if (!app?.available) detail='尚未识别此应用，请安装或打开应用后刷新列表';
-        else if (!access) detail='尚未完成接入，保存规则时网关会自动配置';
+        else if (macCLI && !observed?.activeConnections) detail='已识别 CLI；Mac 版尚未自动配置终端接入，流量进入网关后才会命中固定规则';
+        else if (!macCLI && !access) detail='尚未完成接入，保存规则时网关会自动配置';
         else if (observed?.activeConnections) detail=`已命中固定代理 · ${observed.activeConnections} 条连接 · 实际出口：${observed.actualOutbounds.join('、')}`;
         else detail='接入已设置，等待应用新连接；已打开的应用或终端请重启一次';
         if (health?.checked && !health.available) detail+=' · 固定出口不可用，不改道';
