@@ -1,4 +1,4 @@
-let state, loaded = false, busy = false, draft = [], noticeTimer;
+let state, loaded = false, busy = false, draft = [], ruleDraft = [], baseConfig, noticeTimer;
 const $ = selector => document.querySelector(selector);
 const form = $('#settings');
 let apps = [], appSignature = "";
@@ -16,7 +16,7 @@ function notice(text, error = false) {
   node.classList.toggle('error', error);
   if (!error) noticeTimer = setTimeout(() => node.hidden = true, 6000);
 }
-function dirty() { $('#saved').textContent = '有未保存的修改'; }
+function dirty() { $('#saved').textContent = '有未保存的修改'; controls(); }
 async function api(path, body = {}) {
   if (!state) throw Error('请等待网关连接');
   const response = await fetch(path, {
@@ -30,9 +30,10 @@ async function api(path, body = {}) {
 }
 function syncModes(selected = form.elements.mode.value) {
   const select = form.elements.mode;
-  select.replaceChildren(new Option('自动按优先级切换', 'auto'));
+  select.replaceChildren(new Option('自动选择出口', 'auto'));
   for (const outbound of draft) select.add(new Option('固定：' + (outbound.name || '未命名出口'), outbound.id));
   select.value = draft.some(o => o.id === selected) ? selected : 'auto';
+  syncAppOutbounds();
 }
 function editorField(outbound, key, label, type = 'text') {
   const wrapper = element('label', label);
@@ -78,6 +79,7 @@ function renderEditor() {
       button.addEventListener('click', () => {
         if (busy) return;
         if (action === 'delete') {
+          if (ruleDraft.some(a => a.outboundId === outbound.id)) { notice('请先修改或删除引用此出口的应用规则。', true); return; }
           if (form.elements.mode.value === outbound.id) notice('已移除固定出口；保存后将使用自动模式。');
           draft.splice(index, 1);
         } else {
@@ -93,11 +95,19 @@ function renderEditor() {
   $('#add-outbound').disabled = draft.length >= 16;
 }
 function fill(config) {
+  baseConfig = structuredClone(config);
+  ruleDraft = structuredClone(config.appRules || []);
   draft = structuredClone(config.outbounds);
+  const policy = config.latencyPolicy || {enabled:false, rounds:3, minImprovement:20, cooldown:30};
+  form.elements.latencyEnabled.checked = policy.enabled;
+  form.elements.latencyRounds.value = policy.rounds;
+  form.elements.latencyDifference.value = policy.minImprovement;
+  form.elements.latencyCooldown.value = policy.cooldown;
   for (const key of ['proxyPort', 'autoReturn', 'recovery', 'interval', 'timeout', 'failures']) form.elements[key].value = String(config[key]);
   form.elements.targets.value = config.targets.join('\n');
   form.elements.directDomains.value = config.directDomains.join('\n');
   syncModes(config.mode); renderEditor();
+  renderAppEditor();
   $('#saved').textContent = '配置已保存';
 }
 function controls() {
@@ -105,13 +115,19 @@ function controls() {
   $('#check').disabled = busy || !state;
   $('#stop').disabled = busy || !state;
   const first = state?.config.outbounds[0]?.id;
-  $('#return').disabled = busy || state?.config.mode !== 'auto' || !state?.health[first]?.available;
+  $('#return').disabled = busy || state?.config.mode !== 'auto' || state?.config.latencyPolicy?.enabled || !state?.health[first]?.available;
+  const automatic = form.elements.mode.value === 'auto';
+  form.elements.latencyEnabled.disabled = !automatic;
+  for (const key of ['autoReturn', 'recovery']) form.elements[key].disabled = !automatic || form.elements.latencyEnabled.checked;
+  for (const key of ['latencyRounds', 'latencyDifference', 'latencyCooldown']) form.elements[key].disabled = !automatic || !form.elements.latencyEnabled.checked;
   for (const button of document.querySelectorAll('[data-app]')) button.disabled = busy || !state;
 }
 function display(status) {
   if (!Array.isArray(status.config.outbounds)) throw Error('版本不匹配，请升级网关后刷新页面');
   state = status;
   $('#proxy-address').textContent = status.proxy;
+  $('#strategy').textContent = status.config.mode !== 'auto' ? '默认流量固定出口' : status.config.latencyPolicy?.enabled ? '低延迟自动择优' : '优先级故障切换';
+  renderAppStatus(status);
   renderIntegrations(status.integrationOptions || []);
   $('#connection').textContent = '网关运行中'; $('#connection').className = 'pill ok';
   $('#version').textContent = status.version || '';
@@ -130,7 +146,7 @@ function display(status) {
     heading.append(element('h3', outbound.name), element('span', healthText, 'pill ' + (health.available ? 'ok' : health.checked ? 'bad' : '')));
     const host = outbound.host.includes(':') ? `[${outbound.host}]` : outbound.host;
     card.append(heading, element('code', `${outbound.type}://${host}:${outbound.port}`),
-      element('p', `优先级 ${index + 1} · ${index === 0 ? '首选' : '备用'} · ${health.lastOK ? `${health.latency} ms` : `连续失败 ${health.failures || 0} 次`}`),
+      element('p', `优先级 ${index + 1} · ${health.lastOK ? `本轮 ${health.latency} ms · 平滑 ${health.smoothedLatency ?? health.latency} ms` : `连续失败 ${health.failures || 0} 次`}`),
       element('small', health.detail || '等待检测'));
     cards.append(card);
   });
@@ -187,17 +203,29 @@ $('#add-outbound').onclick = () => {
   if (busy || draft.length >= 16) return;
   let number = 1, port = 7890;
   while (draft.some(o => o.name === `代理 ${number}`)) number++;
-  while (draft.some(o => o.port === port) || [17880, 17881, 17882, Number(form.elements.proxyPort.value)].includes(port)) port++;
+  while (draft.some(o => o.port === port) || ruleDraft.some(a => a.match === 'port' && a.listenPort === port) || [17880, 17881, 17882, Number(form.elements.proxyPort.value)].includes(port)) port++;
   draft.push({id: crypto.randomUUID(), name: `代理 ${number}`, type: 'http', host: '127.0.0.1', port});
   syncModes(); renderEditor(); dirty();
   $('#outbound-editor').lastElementChild.querySelector('input').focus();
 };
 $('#discard').onclick = () => { if (!busy && state) fill(state.config); };
 form.addEventListener('input', dirty);
+form.addEventListener('change', dirty);
+$('#add-app-rule').onclick = () => addAppRule('');
+$('#add-codex').onclick = () => addAppRule('Codex');
+$('#add-claude').onclick = () => addAppRule('Claude');
+$('#add-advanced-rule').onclick = () => addAppRule('',true);
+$('#refresh-apps').onclick = () => act(async () => { await api('/api/applications/refresh'); await refresh(); renderAppEditor(); notice('已刷新应用列表，保存时自动更新识别结果。'); });
 form.addEventListener('submit', event => {
   event.preventDefault();
   act(async () => {
+    const latestResponse = await fetch('/api/status');
+    if (!latestResponse.ok) throw Error('无法读取当前配置');
+    const latest = await latestResponse.json();
+    if (JSON.stringify(latest.config) !== JSON.stringify(baseConfig)) throw Error('配置已在其他窗口更新，请撤销修改后重新编辑');
     const config = structuredClone(state.config);
+    config.appRules = structuredClone(ruleDraft);
+    config.latencyPolicy = {enabled:form.elements.latencyEnabled.checked, rounds:Number(form.elements.latencyRounds.value), minImprovement:Number(form.elements.latencyDifference.value), cooldown:Number(form.elements.latencyCooldown.value)};
     config.outbounds = draft.map(o => ({...o, name: o.name.trim(), host: o.host.trim()}));
     config.mode = form.elements.mode.value;
     config.autoReturn = form.elements.autoReturn.value === 'true';

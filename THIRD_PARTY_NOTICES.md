@@ -33,13 +33,25 @@ library. Copyright belongs to The Go Authors. The Go BSD-style license is
 included in `licenses/Go-BSD.txt` on Windows and
 `Proxy Gateway.app/Contents/Resources/licenses/Go-BSD.txt` on macOS.
 
-## Fyne desktop and other Go modules
+## Legacy Fyne source
 
-The desktop UI uses `fyne.io/fyne/v2` version `v2.8.2` and its Go dependencies.
-Fyne's BSD-3-Clause license and the license/copyright notices collected from
-the linked dependency modules are included in `licenses/Go-dependencies.txt`
-(inside `Contents/Resources/` for macOS). The exact dependency versions and
-checksums are pinned in `go.mod` and `go.sum`.
+The retained legacy desktop source uses `fyne.io/fyne/v2` version `v2.8.2`.
+Official v0.5.0 packages use MyGo instead and do not link Fyne. Legacy builds
+collect Fyne's BSD-3-Clause license and linked module notices into
+`licenses/Go-dependencies.txt`. Versions and checksums remain pinned in
+the root `go.mod` and `go.sum`.
+
+## MyGo desktop
+
+The official Windows and macOS desktop uses `github.com/egoist/mygo` version
+`v0.10.0`, copyright 2026 MyGo contributors, under the MIT License.
+Source: <https://github.com/egoist/mygo/tree/v0.10.0>.
+The exact dependency versions and checksums are pinned in
+`desktop/mygo/go.mod` and `desktop/mygo/go.sum`. MyGo packages include the
+license/copyright notices for MyGo and its linked Go modules in
+`licenses/Go-dependencies.txt` (inside `Contents/Resources/` on macOS).
+This pure-Go desktop does not link Fyne or
+the MinGW runtime. Mihomo remains a separate process under the license above.
 
 ## Noto Sans CJK SC
 
@@ -50,9 +62,10 @@ recorded in `assets/font-source.json` in this repository.
 
 ## Windows graphics toolchain
 
-Windows desktop builds use MinGW-w64 through w64devkit. The MinGW-w64 runtime
-notice is included in `licenses/MinGW-w64-runtime.txt`. The compiler itself
-is a build-time tool and is not bundled with the application.
+Legacy Fyne Windows builds use MinGW-w64 through w64devkit and include its
+runtime notice in `licenses/MinGW-w64-runtime.txt`. MyGo release binaries are
+built with CGO disabled and do not include this runtime. GCC remains a test
+dependency for Go race checks and is not bundled with the application.
 
 ## NSIS Windows installer
 

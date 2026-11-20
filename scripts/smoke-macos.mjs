@@ -71,13 +71,13 @@ try {
   await exec('/usr/bin/codesign',['--verify','--deep','--strict',app]);
   console.log('PASS extracted ZIP permissions, file hashes and app signature');
   // Probe the required system capability independently of our application.
-  // Standard virtualized Mac runners may have no accelerated NSOpenGL format.
-  const probeSource=path.join(temp,'opengl-probe.m'), probe=path.join(temp,'opengl-probe');
-  await fs.writeFile(probeSource,'#import <AppKit/AppKit.h>\n#include <stdio.h>\nint main(void) { @autoreleasepool { NSOpenGLPixelFormatAttribute a[]={NSOpenGLPFAAccelerated,0}; NSOpenGLPixelFormat *p=[[NSOpenGLPixelFormat alloc] initWithAttributes:a]; puts(p ? "available" : "unavailable"); return 0; } }\n');
-  await exec('/usr/bin/xcrun',['clang',probeSource,'-framework','AppKit','-framework','OpenGL','-o',probe]);
+  // MyGo's native UI uses Metal; virtualized runners may have no GPU device.
+  const probeSource=path.join(temp,'metal-probe.m'), probe=path.join(temp,'metal-probe');
+  await fs.writeFile(probeSource,'#import <Metal/Metal.h>\n#include <stdio.h>\nint main(void) { @autoreleasepool { id<MTLDevice> device=MTLCreateSystemDefaultDevice(); puts(device ? "available" : "unavailable"); return 0; } }\n');
+  await exec('/usr/bin/xcrun',['clang',probeSource,'-framework','Foundation','-framework','Metal','-o',probe]);
   const nativeGUI=(await exec(probe,[])).stdout.trim()==='available';
   await fs.mkdir('runtime',{recursive:true});
-  const report={version,installers:{pkg:'passed',dmg:'passed',upgrade:'passed'},nativeGUI:nativeGUI?'pending':'skipped',reason:nativeGUI?'':'Runner has no accelerated NSOpenGL pixel format',backend:'pending'};
+  const report={version,desktop:'MyGo v0.10.0',installers:{pkg:'passed',dmg:'passed',upgrade:'passed'},nativeGUI:nativeGUI?'pending':'skipped',reason:nativeGUI?'':'Runner has no Metal device',backend:'pending'};
   await fs.writeFile('runtime/macos-validation.json',JSON.stringify(report,null,2));
   for(const port of [17891,7892]) {
     const dir=path.join(temp,String(port)); await fs.mkdir(dir);
@@ -87,13 +87,13 @@ try {
     child.on('error',e=>console.error(e));
   }
   if(nativeGUI){
-    // Keep native GUI startup stderr attached to CI for early crash diagnostics.
-    // The subsequent hidden launch and reopen exercise Finder's LaunchServices.
-    const desktop=spawn(path.join(app,'Contents/MacOS/ProxyGateway'),['--smoke-test',path.join(temp,'desktop.png')],{stdio:'inherit'});
-    children.push(desktop);
-    desktop.on('error',e=>console.error('Desktop startup:',e));
+    const smokeDir=path.resolve('runtime/mygo-smoke');
+    await exec(path.join(app,'Contents/MacOS/ProxyGateway'),['--ui-smoke',smokeDir],{timeout:60000});
+    if(!(await fs.readFile(path.join(smokeDir,'native-result.txt'),'utf8')).startsWith('PASS:')) throw Error('Native MyGo smoke failed');
+    console.log('PASS MyGo native pages, animated progress and application picker');
+    await exec('/usr/bin/open',['-n',app,'--args','--background']);
   }else{
-    console.log('::warning::Native Fyne window/tray tests skipped: this runner has no accelerated NSOpenGL pixel format. Headless UI tests and native backend tests still run.');
+    console.log('::warning::Native MyGo window/tray tests skipped: this runner has no Metal device. Headless UI tests and native backend tests still run.');
     const backend=spawn(manager,['--background'],{stdio:'inherit'});children.push(backend);
     backend.on('error',e=>console.error(e));
   }
@@ -111,12 +111,6 @@ try {
   const pid = async()=>(await exec('/usr/sbin/lsof',['-t','-iTCP:17880','-sTCP:LISTEN'])).stdout.trim();
   const originalPID=await pid();
   if(nativeGUI){
-  await waitFor(async()=>{try{const result=JSON.parse(await fs.readFile(path.join(temp,'desktop.png.json'),'utf8'));return result.ready&&result.rendered&&!result.error&&result.version===version}catch{return false}},'Fyne native canvas, tray lifecycle and connected state');
-  await fs.mkdir('runtime',{recursive:true});
-  await fs.copyFile(path.join(temp,'desktop.png'),'runtime/mac-desktop-smoke.png');
-  await sleep(1500);
-  await exec('/usr/bin/open',['-n',app,'--args','--background']);
-  await sleep(1500);
   const sessionPath=path.join(os.homedir(),'Library/Caches/Proxy Gateway/desktop-session.json');
   const session=JSON.parse(await fs.readFile(sessionPath,'utf8'));
   await exec('/usr/bin/open',['-n',app]); await sleep(1000);
@@ -143,7 +137,7 @@ try {
   await sleep(1500);
   for(const child of children) child.kill('SIGTERM');
   // Logs are CI diagnostics only; never copied into a release package.
-  for(const file of ['desktop.log','gateway.log','launcher.log','mihomo.log']) {
+  for(const file of ['desktop-mygo.log','gateway.log','launcher.log','mihomo.log']) {
     try{console.log(`--- ${file} ---\n`+(await fs.readFile(path.join(data,'runtime',file),'utf8')).slice(-6000))}catch{}
   }
 }

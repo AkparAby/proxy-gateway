@@ -56,6 +56,7 @@ function Invoke-Action($name,$enable) {
    }
    $orig=@{};foreach($n in @('ProxyEnable','ProxyServer','ProxyOverride','AutoConfigURL')){$prop=$p.PSObject.Properties[$n];$orig[$n]=[pscustomobject]@{exists=($null-ne$prop);value=if($prop){$prop.Value}else{$null}}}
    Remember $name $orig
+   Set-Flag $name $true
    Set-ItemProperty -LiteralPath $key -Name ProxyServer -Value $proxyAddress
    Set-Property $state[$name] 'appliedPort' $ProxyPort;Save-State
    Set-ItemProperty -LiteralPath $key -Name ProxyEnable -Type DWord -Value 1
@@ -71,7 +72,7 @@ function Invoke-Action($name,$enable) {
  }
  'terminal' {
   $names=@('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY');$values=@("http://$proxyAddress","http://$proxyAddress","socks5h://$proxyAddress",'localhost,127.0.0.1,::1,.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10')
-  if($enable){$orig=@{};foreach($n in $names){$orig[$n]=[Environment]::GetEnvironmentVariable($n,'User')};Remember $name $orig;for($i=0;$i-lt$names.Count;$i++){New-ItemProperty -LiteralPath 'HKCU:\Environment' -Name $names[$i] -PropertyType String -Value $values[$i] -Force | Out-Null}}
+  if($enable){$orig=@{};foreach($n in $names){$orig[$n]=[Environment]::GetEnvironmentVariable($n,'User')};Remember $name $orig;Set-Flag $name $true;for($i=0;$i-lt$names.Count;$i++){New-ItemProperty -LiteralPath 'HKCU:\Environment' -Name $names[$i] -PropertyType String -Value $values[$i] -Force | Out-Null}}
   else{foreach($p in $state[$name].original.PSObject.Properties){if($null-eq$p.Value){Remove-ItemProperty -LiteralPath 'HKCU:\Environment' -Name $p.Name -ErrorAction SilentlyContinue}else{New-ItemProperty -LiteralPath 'HKCU:\Environment' -Name $p.Name -PropertyType String -Value $p.Value -Force | Out-Null}}}
   Notify-Proxy;Set-Flag $name $enable
  }

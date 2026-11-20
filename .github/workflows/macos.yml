@@ -1,18 +1,18 @@
-name: macOS Apple Silicon
+name: Windows and macOS release
 on:
   workflow_dispatch:
     inputs:
       version:
         description: Release version (vX.Y.Z)
         required: true
-        default: v0.4.1
+        default: v0.5.0
   pull_request:
 permissions:
   contents: read
 jobs:
   build-test:
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       RELEASE_VERSION: ${{ inputs.version || 'v0.0.0-dev' }}
     steps:
@@ -29,7 +29,9 @@ jobs:
           test "$(uname -m)" = arm64
           go test -race ./...
           go vet ./...
-          GATEWAY_UI_SCREENSHOT_DIR=../../runtime CGO_ENABLED=1 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
+          cd desktop/mygo
+          go test -race ./...
+          go vet ./...
       - name: Package Apple Silicon app, PKG and DMG
         run: go run scripts/package-macos.go -version "$RELEASE_VERSION"
       - name: Test installers, upgrades and real proxy failover
@@ -49,9 +51,56 @@ jobs:
         with:
           name: macos-desktop-test-image
           path: |
-            runtime/mac-desktop-smoke.png
-            runtime/fyne-preview.png
-            runtime/fyne-port-settings.png
+            runtime/mygo-smoke/
             runtime/macos-validation.json
           if-no-files-found: ignore
           retention-days: 7
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      RELEASE_VERSION: ${{ inputs.version || 'v0.0.0-dev' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Install verified packaging toolchain
+        shell: pwsh
+        run: |
+          $lock = Get-Content scripts/windows-toolchain.json -Raw | ConvertFrom-Json
+          New-Item -ItemType Directory -Path .release-cache/toolchain -Force | Out-Null
+          $archive = Join-Path (Resolve-Path .release-cache) $lock.name
+          Invoke-WebRequest $lock.url -OutFile $archive
+          if ((Get-FileHash $archive).Hash.ToLowerInvariant() -ne $lock.sha256) { throw 'Toolchain checksum mismatch' }
+          & 7z x $archive '-o.release-cache/toolchain' -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot extract toolchain' }
+          (Resolve-Path .release-cache/toolchain/w64devkit/bin).Path >> $env:GITHUB_PATH
+      - name: Test backend and MyGo desktop
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = '1'
+          go test -race ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Set-Location desktop/mygo
+          go test -race ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package and verify Windows installer
+        shell: pwsh
+        run: |
+          ./scripts/package-release.ps1 -Version $env:RELEASE_VERSION
+          ./scripts/smoke-windows-installer.ps1 -Installer "dist/$env:RELEASE_VERSION/proxy-gateway-$env:RELEASE_VERSION-windows-amd64-setup.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-amd64-release
+          path: |
+            dist/${{ env.RELEASE_VERSION }}/*.zip
+            dist/${{ env.RELEASE_VERSION }}/*-setup.exe
+            dist/${{ env.RELEASE_VERSION }}/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

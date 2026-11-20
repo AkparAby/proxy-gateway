@@ -48,6 +48,10 @@ func (c *Core) verifyPort(ctx context.Context, port int) error {
 	if active.MixedPort != port {
 		return fmt.Errorf("内核没有应用网关端口 %d", port)
 	}
+	return verifySOCKSPort(ctx, port)
+}
+
+func verifySOCKSPort(ctx context.Context, port int) error {
 	d := net.Dialer{Timeout: 2 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp4", proxyAddress(port))
 	if err != nil {

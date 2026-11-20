@@ -4,15 +4,43 @@ package desktop
 
 import (
 	"context"
+	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/test"
 	"image/png"
 	client "local/proxy-gateway/internal/gatewayclient"
+	"local/proxy-gateway/internal/routing"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestStartGatewayOnlyOfferedWhenOffline(t *testing.T) {
+	u := testWindow(t)
+	if u.retry.Visible() {
+		t.Fatal("running gateway still offers start")
+	}
+	u.offline(fmt.Errorf("offline"))
+	if !u.retry.Visible() || u.retry.Disabled() {
+		t.Fatal("offline gateway cannot be started")
+	}
+	calls := 0
+	u.OnReconnect = func() { calls++ }
+	u.Reconnect()
+	u.Reconnect()
+	if calls != 1 || !u.retry.Disabled() || u.retry.Text != "正在启动…" {
+		t.Fatal("duplicate startup allowed or startup feedback missing")
+	}
+	u.ReconnectFinished(fmt.Errorf("startup failed"))
+	if u.retry.Disabled() || u.retry.Text != "启动网关" {
+		t.Fatal("failed startup cannot be retried")
+	}
+	u.display(exampleStatus())
+	if u.retry.Visible() {
+		t.Fatal("start action remains after recovery")
+	}
+}
 
 type fakeAPI struct{}
 
@@ -175,5 +203,71 @@ func TestCanvasCapture(t *testing.T) {
 	defer portFile.Close()
 	if err = png.Encode(portFile, u.Window.Canvas().Capture()); err != nil {
 		t.Fatal(err)
+	}
+	u.optimal.SetChecked(true)
+	u.draft.AppRules = []routing.AppRule{{ID: "codex", Name: "Codex", Enabled: true, Match: "port", ListenPort: 17900, OutboundID: "a"}, {ID: "claude", Name: "Claude", Enabled: true, Match: "process", ProcessPaths: []string{`C:\Apps\Claude\Claude.exe`}, OutboundID: "b"}}
+	u.renderAppRules()
+	for _, item := range []struct {
+		index  int
+		name   string
+		bottom bool
+	}{{3, "fyne-latency-settings.png", false}, {3, "fyne-policy-bottom.png", true}, {4, "fyne-app-rules.png", false}} {
+		tabs.SelectIndex(item.index)
+		if item.bottom {
+			tabs.Items[item.index].Content.(*container.Scroll).ScrollToBottom()
+		}
+		file, err := os.Create(filepath.Join(dir, item.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = png.Encode(file, u.Window.Canvas().Capture())
+		file.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	u.status.Applications = []routing.Application{{ID: "codex-desktop", Name: "Codex 桌面版", Available: true, Kind: "desktop", ProcessPaths: []string{`C:\Apps\Codex.exe`}}, {ID: "claude-cli", Name: "Claude Code CLI", Available: true, Kind: "cli", ProcessPaths: []string{`C:\Tools\claude.exe`}}}
+	u.editAppRule(-1, "Codex")
+	file, err := os.Create(filepath.Join(dir, "fyne-app-dialog.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = png.Encode(file, u.Window.Canvas().Capture())
+	file.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLatencyControlsAndAppDraftIsolation(t *testing.T) {
+	u := testWindow(t)
+	u.optimal.SetChecked(true)
+	if !u.autoReturn.Disabled() || !u.recovery.Disabled() || u.latencyRounds.Disabled() {
+		t.Fatal("conflicting policy controls enabled")
+	}
+	u.latencyDifference.SetText("35")
+	c, err := u.collect()
+	if err != nil || !c.LatencyPolicy.Enabled || c.LatencyPolicy.MinImprovement != 35 || c.LatencyPolicy.Rounds != 3 {
+		t.Fatal(c, err)
+	}
+	u.mode.SetSelectedIndex(1)
+	if !u.optimal.Disabled() || !u.latencyRounds.Disabled() {
+		t.Fatal("fixed mode must suspend optimization")
+	}
+	s := exampleStatus()
+	s.Config.AppRules = []routing.AppRule{{ID: "codex", Name: "Codex", Enabled: true, Match: "process", ProcessPaths: []string{`C:\Apps\Codex.exe`}, OutboundID: "a"}}
+	u.fill(s.Config)
+	u.removeOutbound()
+	if len(u.draft.Outbounds) != 2 {
+		t.Fatal("deleted referenced outbound")
+	}
+	u.draft.AppRules[0].ProcessPaths[0] = `C:\Changed.exe`
+	u.markDirty()
+	u.display(s)
+	if s.Config.AppRules[0].ProcessPaths[0] != `C:\Apps\Codex.exe` || u.base.AppRules[0].ProcessPaths[0] != `C:\Apps\Codex.exe` {
+		t.Fatal("draft mutated saved paths")
+	}
+	if u.draft.AppRules[0].ProcessPaths[0] != `C:\Changed.exe` {
+		t.Fatal("polling discarded unsaved application edits")
 	}
 }

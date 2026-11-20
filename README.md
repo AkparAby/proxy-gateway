@@ -1,13 +1,13 @@
 # Proxy Gateway · 本地代理网关
 
-**给 Windows 和 macOS 应用一个固定代理入口，在多个本地代理客户端之间按优先级自动切换。**
+**给 Windows 和 macOS 应用一个固定代理入口，按延迟或优先级自动选路，也可为 Codex、Claude 单独固定代理客户端。**
 
 [![Release](https://img.shields.io/github/v/release/AkparAby/proxy-gateway)](https://github.com/AkparAby/proxy-gateway/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)](https://github.com/AkparAby/proxy-gateway/releases/latest)
 [![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple_Silicon-333333)](https://github.com/AkparAby/proxy-gateway/releases/latest)
 
-Proxy Gateway 使用 **Go + Fyne 桌面界面、独立 Go 管理程序和 Mihomo 内核**。双击程序即可打开中文桌面窗口，并在系统托盘常驻；浏览器管理页作为备用入口保留。支持添加 1–16 个本机 HTTP / SOCKS5 代理出口，自定义名称并调整优先级。应用始终连接同一地址，网关负责检测出口、故障切换和恢复回切。
+Proxy Gateway 使用 **MyGo 原生桌面界面、独立 Go 管理程序和 Mihomo 内核**。Windows 和 macOS 使用同一套左侧导航界面，支持托盘 / 菜单栏常驻，浏览器管理页作为备用入口保留。可添加 1–16 个本机 HTTP / SOCKS5 代理出口；网关负责健康检测、低延迟择优、故障切换和应用固定路由。
 
 [下载 Windows / macOS 版](https://github.com/AkparAby/proxy-gateway/releases/latest) · [报告问题](https://github.com/AkparAby/proxy-gateway/issues) · [许可证说明](THIRD_PARTY_NOTICES.md)
 
@@ -17,13 +17,25 @@ Proxy Gateway 使用 **Go + Fyne 桌面界面、独立 Go 管理程序和 Mihomo
 - **多个代理出口**：添加、删除、改名和上下调整优先级，可连接不同软件提供的本机 HTTP / SOCKS5 端口。
 - **自动故障切换**：通过每个出口实际访问 HTTPS 地址，连续失败后按优先级选择健康备用，减少偶发波动导致的切换。
 - **可选回切策略**：更高优先级出口稳定恢复后自动切回，或保持当前出口、手动切回首选；也支持固定任一出口。
+- **低延迟自动择优**：可开启“自动切换最优网络”，按平滑 HTTPS 检测延迟选出口，支持连续观察轮数、最小改善幅度和切换冷却。
+- **应用固定代理**：选择自动识别的 Codex、Claude 等应用，再指定代理客户端即可绑定，常规操作无需填写 HTTP 或手找路径；默认出口切换不影响固定规则。
 - **按需接入**：Windows 支持系统代理、终端、Git、Docker 和 WSL；macOS 支持系统代理、Git 和登录自启动。
-- **桌面管理**：概览、代理出口、网关设置、切换策略、应用接入和事件六个页面；中文字体内嵌，无需浏览器或 WebView2。
+- **左侧导航**：概览、代理出口、网关设置、切换策略、应用接入和事件六个页面；内容独立滚动，保存按钮固定在顶部，底栏只显示网关状态。中文字体内嵌，无需浏览器或 WebView2。
+- **检测反馈**：自动检测静默刷新延迟；手动点击“立即检查网络”才显示逐个出口的转圈动画，完成后分别显示结果。失败检测地址不计入平均延迟。
 - **托盘运行**：关闭窗口继续代理，再次打开唤起已有窗口；从菜单明确恢复接入后退出。
 - **安装即用**：Windows 提供 Setup.exe；macOS Apple 芯片版主推 PKG，另提供 DMG 和 ZIP。均附带内核，无需安装 Go、Node.js 或 Python。
 - **可恢复设置**：接入功能保存原值；可逐项停用恢复，或恢复后停止网关。可选当前用户登录自启动。
 
-这是主备故障切换工具，目前不做流量轮询、带宽叠加或已有连接的无缝迁移。
+目前不做流量轮询、带宽叠加或已有连接的无缝迁移。
+
+![MyGo 左侧导航与网络概览（示例数据）](docs/images/mygo-overview.png)
+
+### v0.5.0 更新
+
+- Windows 和 Apple 芯片 Mac 安装包统一使用 MyGo 新界面，改善滚动和网关启停状态提示，统一窗口与托盘图标。
+- 增加可开关的低延迟自动择优，以及 Codex / Claude 的自动识别和固定代理客户端配置。
+- 手动检查显示动画，自动检查保留已有延迟；多个检测地址只对成功结果取平均，全部失败仍视为本轮检测失败。
+- 沿用原有配置格式和恢复机制，升级步骤见下方升级与迁移说明。
 
 ## 工作方式
 
@@ -79,11 +91,13 @@ flowchart LR
 
 ### 3. 启动网关
 
-Windows 从开始菜单打开 **Proxy Gateway**，或双击目录中的 **`proxy-gateway.exe`**（也可使用 `Start-Gateway.cmd`）；macOS 双击 **`Proxy Gateway.app`**。程序启动后直接显示 Fyne 桌面管理窗口：
+Windows 从开始菜单打开 **Proxy Gateway**，或双击目录中的 **`proxy-gateway.exe`**（也可使用 `Start-Gateway.cmd`）；macOS 双击 **`Proxy Gateway.app`**。程序启动后直接显示 MyGo 桌面管理窗口：
 
 - 桌面管理：双击程序，或点击托盘 / Mac 菜单栏中的网关图标。
 - 备用浏览器管理页：<http://127.0.0.1:17880>
 - 统一代理：默认 `127.0.0.1:17890`，当前地址显示在窗口顶部。
+
+网关在线时显示“服务在线 / 网关运行中”，只有离线时才显示“启动网关”。点击“立即检查网络”后，每个代理的延迟位置显示动画，收到各自结果后恢复数字或显示“检测失败”。定时检查不会显示动画；底部状态栏始终显示网关状态。
 
 Windows 也可以在解压目录执行：
 
@@ -131,6 +145,46 @@ SOCKS5 代理：socks5h://127.0.0.1:17890
 在“应用接入”中启用“登录后启动网关”，之后当前系统用户登录时在后台自动启动并显示托盘图标，不弹出管理窗口。各出口客户端的自启动和自动连接需要分别设置。Windows 使用当前用户的登录启动项；macOS 使用用户级 LaunchAgent，下次登录时生效。启用后请保留程序路径；移动目录或应用前先停用自启动，再在新位置重新启用。macOS 如提示后台项目被禁用，请在系统的登录项设置中允许 Proxy Gateway。
 
 ## 默认策略与边界
+
+### 自动切换最优网络
+
+在桌面“切换策略”或 Web 设置中开启“自动切换最优网络（低延迟）”，点击“保存全部设置”。旧配置及首次启动默认关闭，沿用原有优先级故障切换。
+
+- 自动模式下开启：比较健康出口最近 3 轮的平滑延迟。默认候选连续 3 轮至少快 20ms，且距上次切换至少 30 秒才切换；这些参数可调整。相同延迟保持当前出口。
+- 所有出口检测相同的 HTTPS 地址，等待各目标结果后，仅对成功目标取平均延迟；失败或超时目标不计入平均值。任一目标成功即视为本轮健康，全部失败则本轮检测失败。整轮检测失败、未检测和过期的数据不参与择优。
+- 例如两个地址测得 `100 ms` 和超时，本轮延迟为 `100 ms`；两个都成功且分别为 `100 ms`、`300 ms` 时，本轮为 `200 ms`。界面展示最近 3 轮的平滑值，因此不会总等于单次测量。
+- 当前出口连续失败达到故障阈值时，跳过择优观察和冷却，选择检测有效的最低延迟健康出口。全部不可用时拒绝代理请求。
+- 开启择优会暂停“稳定后按优先级回切”和“切回首选”；手动固定默认出口时暂停择优。关闭择优恢复原优先级策略。
+- 日常择优只更新默认出口选择，不重新加载内核配置、不主动关闭已有连接；新连接采用新出口。延迟分数代表配置的检测目标，不代表所有网站速度或带宽。
+
+### 为 Codex、Claude 等应用固定客户端
+
+在桌面“应用接入 → 选择应用”（或“绑定 Codex / Claude”）选择已安装的应用和代理客户端，点击“添加到设置”，再点击“保存全部设置”。Web 页提供同样的应用选择。**常规操作不需要填写 HTTP 地址或查找程序路径。**
+
+网关会在运行它的电脑上读取安装信息、常见安装目录、命令行入口和正在运行的程序，分别识别 Codex 桌面版、Codex CLI、Claude 桌面版、Claude Code CLI。Windows 支持微软商店应用、常见用户安装、npm 原生 CLI 和 `.local/bin` 原生 CLI；特殊便携目录可先打开应用再刷新。共享 `node.exe` 的旧版纯 JavaScript CLI 不会被当作独立原生应用绑定。macOS 当前自动发现标准 Applications 目录中的桌面应用。
+
+自动绑定保存应用身份，保存设置及网关启动时重新识别本机的实际程序，覆盖旧电脑或旧版本的路径。无法识别时显示“未检测到”，不会把绑定显示成已生效。“刷新应用列表”可重新扫描，保存规则时应用最新结果。
+
+保存自动绑定会启用所需的系统代理接入；Windows 还会自动启用用户级终端代理环境，覆盖桌面联网辅助程序及原生 CLI。现有接入原值会保存，正常退出时恢复；已启用的接入不会重复备份。其他使用这些接入的程序跟随默认策略。**已运行的应用或终端可能需要重启一次以读取新设置。**此功能自动完成代理接入配置，仍不是 TUN 强制截流；应用显式覆盖代理设置、WSL/容器中的程序或不遵循代理的流量不能假定已绑定。
+
+界面区分“尚未识别”“尚未完成接入”“接入已设置，等待新连接”和“已命中固定代理”。只有观察到实际连接命中时才显示已命中。未安装的应用不能作为新的启用绑定保存，已卸载应用的旧规则可以停用或删除。
+
+原有手工方式保留在“高级规则”中，适用于其他程序或特殊接入需求：
+
+| 接入方式 | 设置方法 | 适用边界 |
+|---|---|---|
+| 完整程序路径 | 选择或填写实际联网程序的完整路径，每行一个；一个规则支持最多 16 个路径 | 应用流量须先进入网关，路径匹配由内核完成；桌面、CLI、辅助进程可能使用不同路径，应用更新后路径也可能变化 |
+| 专属代理入口 | 设置独立端口（例如 `17900`），保存后将 `http://127.0.0.1:17900` 或 `socks5h://127.0.0.1:17900` 配置到应用 | 支持独立代理配置的程序可直接使用；共享 Node 等运行时或难以识别的进程优先选此方式。不会修改全局环境变量 |
+
+固定规则优先于默认自动/手动策略，绑定稳定的出口 ID，出口改名或排序不影响绑定。每个专属入口只监听本机回环地址，HTTP、HTTPS CONNECT 和 SOCKS5 共用端口。本机、局域网及 Tailscale 私有目标保留直连，其他固定应用流量使用指定客户端；自定义直连域名不覆盖固定规则。
+
+固定客户端不可用时不会自动使用其他客户端或直连。固定的是客户端，不是该客户端内部的节点或公网 IP。全局默认出口不可用也不会阻断另一个仍能连接的固定客户端。
+
+最多配置 32 条应用规则。关闭固定规则后，进程流量恢复普通规则匹配；专属入口地址保留并恢复普通规则匹配。删除规则会移除专属入口，需要先修改应用里的代理地址。被规则引用的出口（包括停用的规则）不能直接删除，须先修改或删除绑定。保存时检查入口端口冲突，内核应用失败会尝试回退配置。
+
+界面显示已保存规则的出口健康状态、当前命中的活动连接数及实际出口。短请求可能在刷新前就结束，暂无活动连接不代表没有生效。建议在应用发起较长请求时核对状态。程序路径只识别已经进入网关的流量，不会强制接管绕过代理的程序；WSL、容器和其他转发入口不能依赖宿主机程序路径识别。
+
+### 原有优先级策略
 
 | 项目 | 默认值 / 行为 |
 |---|---|
@@ -189,7 +243,7 @@ Windows 便携包包含：
 
 ```text
 proxy-gateway-vX.Y.Z-windows-amd64/
-├── proxy-gateway.exe           # Fyne 桌面程序（默认打开窗口）
+├── proxy-gateway.exe           # MyGo 桌面程序（默认打开窗口）
 ├── runtime/gateway-manager.exe # Go 后台管理程序，内嵌备用管理页
 ├── Start-Gateway.cmd / .ps1    # 启动入口
 ├── Restore-Proxy.cmd / .ps1    # 应急恢复接入设置
@@ -233,11 +287,11 @@ Get-FileHash .\proxy-gateway-vX.Y.Z-windows-amd64.zip -Algorithm SHA256
 
 **启动后没有窗口？**
 
-v0.4.0 起默认显示 Fyne 桌面窗口。登录自启动和 `--background` 模式仅显示托盘 / 菜单栏图标，点击该图标的“打开管理窗口”即可；再次双击程序也会唤起窗口。后台未连接时可点击“启动网关”。备用管理页仍为 <http://127.0.0.1:17880>。
+v0.5.0 默认显示 MyGo 桌面窗口。登录自启动和 `--background` 模式仅显示托盘 / 菜单栏图标，点击该图标的“打开管理窗口”即可；再次双击程序也会唤起窗口。后台未连接时可点击“启动网关”。备用管理页仍为 <http://127.0.0.1:17880>。
 
 **启动失败或管理页打不开？**
 
-确认完整解压且目录可写，检查管理端口 `17880`、`17881`、`17882` 和当前网关端口（默认 `17890`）是否被其他程序占用。查看 `runtime/gateway.log` 和 `runtime/mihomo.log`；文件缺失时重新解压完整包。每台机器只运行一套网关。Mac 的日志在上述用户数据目录中，另有 `runtime/desktop.log`。
+确认完整解压且目录可写，检查管理端口 `17880`、`17881`、`17882` 和当前网关端口（默认 `17890`）是否被其他程序占用。查看 `runtime/gateway.log`、`runtime/mihomo.log` 和 `runtime/desktop-mygo.log`；文件缺失时重新解压完整包。每台机器只运行一套网关。Mac 的日志在上述用户数据目录中。
 
 **所有出口都显示不可用？**
 
@@ -253,31 +307,37 @@ v0.4.0 起默认显示 Fyne 桌面窗口。登录自启动和 `--background` 模
 
 ## 开发与打包
 
-开发需要 **Go 1.26、Git**。桌面界面使用 **Fyne 2.8.2**，由 Go 编写；Windows 还需要 PowerShell 7、MinGW-w64 C 编译器和 NSIS（本项目使用 w64devkit 2.11.0 自带的 GCC 与 NSIS，来源校验见 `scripts/windows-toolchain.json`），macOS 需要 Apple 芯片 Mac、Xcode Command Line Tools 和系统自带的 `pkgbuild`、`productbuild`、`hdiutil`。中文字体已随源码提供。备用浏览器页继续保留原生 HTML/CSS/JavaScript。
+### MyGo 正式桌面版
+
+正式 Windows 与 macOS 安装包均构建 `desktop/mygo/`，使用 **MyGo v0.10.0 和 Go 1.27.4**；后台模块使用 Go 1.26.5。启用 `GOTOOLCHAIN=auto` 时 Go 自动取得桌面模块要求的工具链。中文字体随源码提供，备用 Web 页保留原生 HTML/CSS/JavaScript。
+
+Windows 打包需要 PowerShell 7 和 NSIS；桌面与后台均以 `CGO_ENABLED=0` 构建，不需要 C 编译器。运行 `-race` 测试时仍需要 GCC。固定工具链来源和校验和见 `scripts/windows-toolchain.json`。
 
 ```powershell
 git clone https://github.com/AkparAby/proxy-gateway.git
 cd proxy-gateway
 go test ./...
 go vet ./...
-go test -tags "desktop,ci" ./internal/desktop ./cmd/desktop
-pwsh -NoProfile -File .\scripts\package-release.ps1 -Version v0.4.1
+go -C desktop/mygo test ./...
+go -C desktop/mygo vet ./...
+pwsh -NoProfile -File .\scripts\package-release.ps1 -Version v0.5.0
 ```
 
-macOS 本机构建：
+macOS 需要 Apple 芯片 Mac、Xcode Command Line Tools 和系统自带的 `pkgbuild`、`productbuild`、`hdiutil`：
 
 ```sh
 go test -race ./...
 go vet ./...
-CGO_ENABLED=1 go test -tags desktop,ci ./internal/desktop ./cmd/desktop
-go run scripts/package-macos.go -version v0.4.1
+go -C desktop/mygo test -race ./...
+go -C desktop/mygo vet ./...
+go run scripts/package-macos.go -version v0.5.0
 ```
 
-将 `gcc` 和 `makensis.exe` 所在目录加入 PATH；也可以向 Windows 打包脚本传入 `-MakeNSIS <绝对路径>`。安装器使用仓库图标和 zlib 压缩，第三方许可随包提供。
+将 `makensis.exe` 所在目录加入 PATH，或向 Windows 打包脚本传入 `-MakeNSIS <绝对路径>`。安装器使用仓库图标和 zlib 压缩，第三方许可随包提供。
 
-也可在 GitHub Actions 手动运行 **macOS Apple Silicon** 工作流，输入版本号。工作流在 `macos-15` Apple 芯片运行器上构建，执行 Go 与软件渲染界面测试、ZIP 文件哈希校验、DMG 只读挂载与复制检查、PKG 实际安装与升级保留配置检查，再从 `/Applications` 中的应用演练原生后台的 HTTP / SOCKS5 转发、端口修改与多出口故障切换。`macos-arm64-release` Artifact 提供 PKG、DMG、ZIP 和校验和。安装测试只应运行在可丢弃的 CI 环境。
+GitHub Actions 的 **Windows and macOS release** 工作流接受版本号，分别在 `windows-2025` 和 Apple 芯片 `macos-15` 上测试和打包。Windows 验证安装、升级、卸载与恢复失败保护；Mac 验证 ZIP 文件哈希、DMG 挂载与复制、PKG 实际安装和升级配置保留，以及原生后台的 HTTP / SOCKS5 转发、端口修改和故障切换。两个 release Artifact 提供安装包、便携包与校验和。安装测试只应在可丢弃的 CI 环境执行，不要在日常使用的电脑上运行。
 
-Fyne 桌面窗口需要可用的 OpenGL 图形环境。CI 会先检测系统的加速 NSOpenGL 能力；虚拟机不具备该能力时，明确跳过原生窗口、菜单栏和 Finder 唤起测试，保留后台功能及软件渲染测试，并将结果写入 `macos-validation.json` 测试附件。**此时 CI 通过不代表 Mac 窗口已完成真机验证**，使用 Apple 芯片实体 Mac 仍需验证窗口与菜单栏行为。
+MyGo 在 Mac 上使用 Metal。CI 独立检查 Metal 设备；可用时验证六个原生页面、检测动画、应用选择和单实例唤起，不可用时明确记录跳过原生窗口验证，并保留界面逻辑和后台测试。结果写入 `macos-validation.json`，真实 Mac 的窗口与菜单栏体验仍需人工验证。
 
 打包脚本要求 Git 工作区干净，输出到 `dist/<版本>/`。它按 `scripts/mihomo.lock.json` 下载固定版本内核和对应源码，校验 SHA-256，构建对应平台的可执行文件，按显式文件列表生成安装包、ZIP、源码附件和 `SHA256SUMS.txt`。已有打包目录不会被覆盖；Mac ZIP 保留可执行权限，并做 ad-hoc 签名验证。Windows 安装器的文件清单来自同一份发布清单；卸载不递归删除用户数据目录。
 
@@ -285,17 +345,26 @@ Windows 在解压的开发包中运行。修改 Go 或 `web/` 后，可重新构
 
 ```powershell
 go build -trimpath -ldflags '-H=windowsgui' -o runtime/gateway-manager.exe .
-$env:CGO_ENABLED = "1"
-go build -tags desktop -trimpath -ldflags '-H=windowsgui -extldflags=-static' -o proxy-gateway.exe ./cmd/desktop
+$env:CGO_ENABLED = "0"
+go -C desktop/mygo build -trimpath -ldflags '-H=windowsgui' -o ../../proxy-gateway.exe .
 ```
 
 Windows 后台和桌面程序的 `.syso` 图标资源均已包含在源码仓库中，构建会自动嵌入；更换图标时参见 [图标源文件与生成说明](winres/README.md)。
 
 桌面界面与网关是独立进程，通过本机 API 通信；桌面单实例唤起使用 `127.0.0.1:17882` 和当前用户缓存目录中的随机令牌。后台可独立运行，界面关闭或异常退出不会自动终止代理。
 
-桌面代码使用 `desktop` 构建标签，常规 `go test ./...` 检查后台与共享协议；`go test -tags desktop,ci ./internal/desktop` 使用内存图形驱动验证编辑、排序、配置刷新和平台接入控件。
+MyGo 是独立模块，必须分别执行根目录与 `desktop/mygo/` 的测试。`--ui-preview` 打开示例界面，`--ui-smoke <截图目录>` 验证原生页面与动画并自动退出；均不修改系统代理。旧 Fyne 源码保留在 `cmd/desktop`、`internal/desktop`，可用 `go test -tags desktop,ci ./internal/desktop ./cmd/desktop` 验证，但正式安装包不包含 Fyne。详见 [MyGo 构建与验证说明](desktop/mygo/README.md)。
 
 源码仓库不附带内核。若直接运行源码构建的 EXE，需将打包结果中的 `runtime/mihomo.exe` 复制到项目的同名位置，并保持启动与接入脚本完整。
+
+新增的路由回归可以使用本地固定版本内核运行，测试只使用临时目录、独立回环端口及模拟上游，不修改系统代理或现有应用：
+
+```powershell
+$env:GATEWAY_TEST_MIHOMO = (Resolve-Path .\runtime\mihomo.exe).Path
+go test -race ./...
+```
+
+`scripts/verify-routing-ui.cjs` 使用 Playwright 和模拟管理接口检查 Web 开关、应用规则、保存撤销与移动布局。通过 `PLAYWRIGHT_MODULE` 指定本地 Playwright 模块目录，必要时用 `PLAYWRIGHT_CHROMIUM` 指定浏览器可执行文件；运行 `node scripts/verify-routing-ui.cjs`。测试截图写入 `dist/routing-validation/`。Fyne 界面测试设置 `GATEWAY_UI_SCREENSHOT_DIR` 后也会输出策略页、应用规则及编辑弹窗的截图。
 
 Windows 现有系统接入脚本继续随包提供；桌面界面和网关管理逻辑均为 Go。
 

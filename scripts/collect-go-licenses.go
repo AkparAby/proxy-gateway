@@ -18,10 +18,14 @@ import (
 type module struct{ Path, Version, Dir string }
 
 func main() {
-	if len(os.Args) != 2 {
-		panic("expected output filename")
+	if len(os.Args) < 2 || len(os.Args) > 3 {
+		panic("expected output filename and optional package path")
 	}
-	cmd := exec.Command("go", "list", "-deps", "-tags", "desktop", "-json", "./cmd/desktop")
+	args := []string{"list", "-deps", "-tags", "desktop", "-json", "./cmd/desktop"}
+	if len(os.Args) == 3 {
+		args = []string{"list", "-deps", "-json", os.Args[2]}
+	}
+	cmd := exec.Command("go", args...)
 	b, err := cmd.Output()
 	if err != nil {
 		panic(err)
@@ -37,7 +41,7 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		if p.Module != nil && p.Module.Version != "" {
+		if p.Module != nil && p.Module.Version != "" && p.Module.Path != "local/proxy-gateway" {
 			modules[p.Module.Path] = *p.Module
 		}
 	}

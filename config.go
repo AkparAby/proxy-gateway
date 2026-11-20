@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"local/proxy-gateway/internal/routing"
 	"net"
 	"net/url"
 	"os"
@@ -25,21 +26,23 @@ type Outbound struct {
 	Endpoint
 }
 type Config struct {
-	SchemaVersion int        `json:"schemaVersion"`
-	ProxyPort     int        `json:"proxyPort"`
-	Outbounds     []Outbound `json:"outbounds"`
-	Mode          string     `json:"mode"`
-	AutoReturn    bool       `json:"autoReturn"`
-	Interval      int        `json:"interval"`
-	Timeout       int        `json:"timeout"`
-	Failures      int        `json:"failures"`
-	Recovery      int        `json:"recovery"`
-	Targets       []string   `json:"targets"`
-	DirectDomains []string   `json:"directDomains"`
+	LatencyPolicy routing.LatencyPolicy `json:"latencyPolicy"`
+	AppRules      []routing.AppRule     `json:"appRules"`
+	SchemaVersion int                   `json:"schemaVersion"`
+	ProxyPort     int                   `json:"proxyPort"`
+	Outbounds     []Outbound            `json:"outbounds"`
+	Mode          string                `json:"mode"`
+	AutoReturn    bool                  `json:"autoReturn"`
+	Interval      int                   `json:"interval"`
+	Timeout       int                   `json:"timeout"`
+	Failures      int                   `json:"failures"`
+	Recovery      int                   `json:"recovery"`
+	Targets       []string              `json:"targets"`
+	DirectDomains []string              `json:"directDomains"`
 }
 
 func defaults() Config {
-	return Config{SchemaVersion: 2, ProxyPort: 17890, Outbounds: []Outbound{
+	return Config{LatencyPolicy: routing.DefaultLatencyPolicy(), SchemaVersion: 2, ProxyPort: 17890, Outbounds: []Outbound{
 		{"proxy-1", "代理 1", Endpoint{"http", "127.0.0.1", 17891}},
 		{"proxy-2", "代理 2", Endpoint{"http", "127.0.0.1", 7892}},
 	}, Mode: "auto", AutoReturn: true, Interval: 10, Timeout: 3000, Failures: 3, Recovery: 60,
@@ -146,7 +149,7 @@ func (c Config) validate() error {
 			}
 		}
 	}
-	return nil
+	return c.validateRouting()
 }
 func atomicJSON(path string, v any) error {
 	b, e := json.MarshalIndent(v, "", "  ")
@@ -238,6 +241,28 @@ func readConfig(path string) (Config, error) {
 }
 func coreConfig(c Config, secret string) map[string]any {
 	rules := []string{"DOMAIN,localhost,DIRECT", "DOMAIN-SUFFIX,local,DIRECT", "IP-CIDR,127.0.0.0/8,DIRECT,no-resolve", "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve", "IP-CIDR,172.16.0.0/12,DIRECT,no-resolve", "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve", "IP-CIDR,100.64.0.0/10,DIRECT,no-resolve", "IP-CIDR6,::1/128,DIRECT,no-resolve", "IP-CIDR6,fc00::/7,DIRECT,no-resolve", "IP-CIDR6,fe80::/10,DIRECT,no-resolve"}
+	localRules := append([]string(nil), rules...)
+	listeners := []any{}
+	subRules := map[string][]string{}
+	for _, app := range c.AppRules {
+		if !app.Enabled && app.Match != "port" {
+			continue
+		}
+		target := coreName(app.OutboundID)
+		if app.Match == "process" || app.Match == "application" {
+			for _, path := range app.ProcessPaths {
+				rules = append(rules, "PROCESS-PATH,"+processKey(path)+","+target)
+			}
+		} else {
+			name := "app-" + app.ID
+			rule := ""
+			if app.Enabled {
+				rule = name
+				subRules[name] = append(append([]string(nil), localRules...), "MATCH,"+target)
+			}
+			listeners = append(listeners, map[string]any{"name": name, "type": "mixed", "listen": "127.0.0.1", "port": app.ListenPort, "udp": false, "rule": rule})
+		}
+	}
 	for _, d := range c.DirectDomains {
 		rules = append(rules, "DOMAIN-SUFFIX,"+d+",DIRECT")
 	}
@@ -249,5 +274,5 @@ func coreConfig(c Config, secret string) map[string]any {
 		proxies = append(proxies, map[string]any{"name": name, "type": o.Type, "server": o.Host, "port": o.Port, "udp": false})
 		choices = append(choices, name)
 	}
-	return map[string]any{"mixed-port": c.ProxyPort, "bind-address": "127.0.0.1", "allow-lan": false, "mode": "rule", "log-level": "warning", "ipv6": true, "external-controller": "127.0.0.1:17881", "secret": secret, "tun": map[string]any{"enable": false}, "dns": map[string]any{"enable": false}, "profile": map[string]any{"store-selected": false}, "proxies": proxies, "proxy-groups": []any{map[string]any{"name": "Gateway", "type": "select", "proxies": choices}}, "rules": rules}
+	return map[string]any{"listeners": listeners, "sub-rules": subRules, "find-process-mode": "strict", "mixed-port": c.ProxyPort, "bind-address": "127.0.0.1", "allow-lan": false, "mode": "rule", "log-level": "warning", "ipv6": true, "external-controller": "127.0.0.1:17881", "secret": secret, "tun": map[string]any{"enable": false}, "dns": map[string]any{"enable": false}, "profile": map[string]any{"store-selected": false}, "proxies": proxies, "proxy-groups": []any{map[string]any{"name": "Gateway", "type": "select", "proxies": choices}}, "rules": rules}
 }

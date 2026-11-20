@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"local/proxy-gateway/internal/routing"
 	"log"
 	"net"
 	"net/http"
@@ -32,21 +33,27 @@ type Event struct {
 	Message string    `json:"message"`
 }
 type Manager struct {
-	mu        sync.Mutex
-	op        sync.Mutex
-	config    Config
-	health    map[string]Health
-	selected  string
-	reason    string
-	lastError string
-	events    []Event
-	core      *Core
-	root      string
-	token     string
-	wake      chan struct{}
-	cancel    context.CancelFunc
-	bridges   *Bridges
-	rebind    func(context.Context, string, int) error
+	applications         []routing.Application
+	applicationScanError string
+	discoverApps         func(context.Context) ([]routing.Application, error)
+	applyAppIntegration  func(context.Context, string, bool, int) error
+	mu                   sync.Mutex
+	op                   sync.Mutex
+	config               Config
+	health               map[string]Health
+	checkSequence        uint64
+	selected             string
+	selector             latencySelector
+	reason               string
+	lastError            string
+	events               []Event
+	core                 *Core
+	root                 string
+	token                string
+	wake                 chan struct{}
+	cancel               context.CancelFunc
+	bridges              *Bridges
+	rebind               func(context.Context, string, int) error
 }
 
 func nonce() string {
@@ -69,11 +76,26 @@ func (m *Manager) kick() {
 	default:
 	}
 }
+
+// requestCheck identifies the next round, even when a round is already running.
+func (m *Manager) requestCheck() uint64 {
+	m.mu.Lock()
+	id := m.checkSequence + 1
+	m.kick()
+	m.mu.Unlock()
+	return id
+}
 func (m *Manager) cycle(ctx context.Context) {
 	m.op.Lock()
 	defer m.op.Unlock()
 	m.mu.Lock()
 	conf := m.config
+	m.checkSequence++
+	for _, outbound := range conf.Outbounds {
+		h := m.health[outbound.ID]
+		h.CheckID, h.Checking = m.checkSequence, true
+		m.health[outbound.ID] = h
+	}
 	m.mu.Unlock()
 	if m.bridges != nil {
 		if err := m.bridges.sync(m.root, false, conf.ProxyPort); err != nil {
@@ -93,22 +115,22 @@ func (m *Manager) cycle(ctx context.Context) {
 			ch <- outcome{name, ok, latency, detail}
 		}(outbound.ID)
 	}
-	outcomes := make([]outcome, 0, len(conf.Outbounds))
 	for range conf.Outbounds {
-		outcomes = append(outcomes, <-ch)
-	}
-	now := time.Now()
-	m.mu.Lock()
-	for _, r := range outcomes {
+		r := <-ch
+		m.mu.Lock()
 		h := m.health[r.name]
 		was := h.Available
-		h.record(r.ok, r.latency, r.detail, now, conf.Failures)
+		h.record(r.ok, r.latency, r.detail, time.Now(), conf.Failures)
+		h.Checking = false
 		m.health[r.name] = h
 		if was != h.Available {
 			m.event(fmt.Sprintf("%s 状态：可用=%t", conf.name(r.name), h.Available))
 		}
+		m.mu.Unlock()
 	}
-	next, reason := choose(conf, m.selected, m.health, now)
+	now := time.Now()
+	m.mu.Lock()
+	next, reason := m.selector.choose(conf, m.selected, m.health, now)
 	m.mu.Unlock()
 	call, cancel := context.WithTimeout(ctx, 3*time.Second)
 	err := m.core.selectProxy(call, next)
@@ -120,7 +142,11 @@ func (m *Manager) cycle(ctx context.Context) {
 		return
 	}
 	m.lastError = ""
+	if next == m.selected && m.selector.lastSwitch.IsZero() {
+		m.selector.switched(now)
+	}
 	if next != m.selected {
+		m.selector.switched(now)
 		m.event(fmt.Sprintf("出口 %s → %s：%s", conf.name(m.selected), conf.name(next), reason))
 		m.selected = next
 		_ = atomicJSON(filepath.Join(m.root, "runtime", "selection.json"), map[string]string{"selected": next})
@@ -143,7 +169,6 @@ func (m *Manager) monitor(ctx context.Context) {
 }
 func (m *Manager) status() map[string]any {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	var integrations any
 	data, err := os.ReadFile(filepath.Join(m.root, "runtime", "integrations-status.json"))
 	if err == nil {
@@ -153,19 +178,44 @@ func (m *Manager) status() map[string]any {
 	for id, value := range m.health {
 		health[id] = value
 	}
-	return map[string]any{"version": version, "commit": commit, "config": m.config, "health": health, "selected": m.selected, "reason": m.reason, "error": m.lastError, "events": append([]Event(nil), m.events...), "token": m.token, "proxy": proxyAddress(m.config.ProxyPort), "dashboard": "http://127.0.0.1:17880", "integrations": integrations, "platform": runtime.GOOS, "integrationOptions": integrationOptions()}
+	conf := m.config
+	result := map[string]any{"version": version, "commit": commit, "config": conf, "health": health, "selected": m.selected, "reason": m.reason, "error": m.lastError, "events": append([]Event(nil), m.events...), "token": m.token, "proxy": proxyAddress(conf.ProxyPort), "dashboard": "http://127.0.0.1:17880", "integrations": integrations, "platform": runtime.GOOS, "integrationOptions": integrationOptions()}
+	result["applications"] = m.applications
+	result["applicationScanError"] = m.applicationScanError
+	m.mu.Unlock()
+	if len(conf.AppRules) > 0 && m.core != nil {
+		observed, err := m.core.appConnections(context.Background(), conf)
+		result["appStatus"] = observed
+		if err != nil {
+			result["appStatusError"] = "暂时无法读取活动连接：" + err.Error()
+		}
+	}
+	return result
 }
 func (m *Manager) saveConfig(ctx context.Context, c Config) error {
+	m.op.Lock()
+	defer m.op.Unlock()
+	if automaticApps(c) {
+		apps, err := m.refreshApplications(ctx)
+		if err != nil && len(apps) == 0 {
+			return err
+		}
+		c, err = resolveApplicationRules(c, apps)
+		if err != nil {
+			return err
+		}
+	}
 	if e := c.validate(); e != nil {
 		return e
 	}
-	m.op.Lock()
-	defer m.op.Unlock()
 	m.mu.Lock()
 	old := m.config
 	oldSelected := m.selected
 	m.mu.Unlock()
 	portChanged := c.ProxyPort != old.ProxyPort
+	if err := checkNewAppPorts(old, c); err != nil {
+		return err
+	}
 	if portChanged {
 		if err := checkProxyPort(c.ProxyPort); err != nil {
 			return err
@@ -173,11 +223,17 @@ func (m *Manager) saveConfig(ctx context.Context, c Config) error {
 	}
 	path := filepath.Join(m.core.dir, "config.json")
 	rebound := false
+	var undoApplicationAccess func(context.Context) error
 	rollback := func(cause error) error {
 		// A canceled save must still be able to restore the previous listener.
 		restoreCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		var failures []error
+		if undoApplicationAccess != nil {
+			if err := undoApplicationAccess(restoreCtx); err != nil {
+				failures = append(failures, err)
+			}
+		}
 		if err := atomicJSON(path, coreConfig(old, m.core.secret)); err != nil {
 			failures = append(failures, err)
 		}
@@ -189,6 +245,9 @@ func (m *Manager) saveConfig(ctx context.Context, c Config) error {
 			}
 		}
 		if err := m.core.selectProxy(restoreCtx, oldSelected); err != nil {
+			failures = append(failures, err)
+		}
+		if err := m.core.verifyAppPorts(restoreCtx, old); err != nil {
 			failures = append(failures, err)
 		}
 		if rebound {
@@ -216,6 +275,9 @@ func (m *Manager) saveConfig(ctx context.Context, c Config) error {
 	if e := m.core.reload(ctx); e != nil {
 		return rollback(e)
 	}
+	if err := m.core.verifyAppPorts(ctx, c); err != nil {
+		return rollback(err)
+	}
 	if portChanged {
 		if err := m.core.verifyPort(ctx, c.ProxyPort); err != nil {
 			return rollback(err)
@@ -235,12 +297,18 @@ func (m *Manager) saveConfig(ctx context.Context, c Config) error {
 			}
 		}
 	}
+	var accessErr error
+	undoApplicationAccess, accessErr = m.prepareApplicationAccess(ctx, c)
+	if accessErr != nil {
+		return rollback(accessErr)
+	}
 	if e := atomicJSON(filepath.Join(m.root, "config.json"), c); e != nil {
 		return rollback(e)
 	}
 	m.mu.Lock()
 	m.config = c
 	m.health = c.initialHealth()
+	m.selector = latencySelector{}
 	m.selected = "REJECT"
 	m.reason = "配置已保存，重新检测出口"
 	m.event("已更新网关配置")
@@ -257,11 +325,11 @@ func (m *Manager) returnPrimary(ctx context.Context) error {
 	defer m.op.Unlock()
 	m.mu.Lock()
 	primary := m.config.primary()
-	auto := m.config.Mode == "auto"
+	auto := m.config.Mode == "auto" && !m.config.LatencyPolicy.Enabled
 	healthy := m.health[primary].Available
 	m.mu.Unlock()
 	if !auto {
-		return errors.New("请先切换到自动模式，再手动切回首选出口")
+		return errors.New("请先关闭自动择优并切换到自动模式，再手动切回首选出口")
 	}
 	if !healthy {
 		return errors.New("首选出口尚未恢复，请先检查连接")
@@ -326,8 +394,16 @@ func (m *Manager) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 32768)
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	switch {
+	case r.URL.Path == "/api/applications/refresh" && r.Method == "POST":
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		if _, err := m.refreshApplications(ctx); err != nil {
+			writeJSON(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]string{"message": "已刷新已安装应用，保存规则时会自动更新识别结果"})
 	case r.URL.Path == "/api/return" && r.Method == "POST":
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
@@ -339,11 +415,10 @@ func (m *Manager) serve(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/api/status" && r.Method == "GET":
 		writeJSON(w, 200, m.status())
 	case r.URL.Path == "/api/check" && r.Method == "POST":
-		m.kick()
-		writeJSON(w, 200, map[string]bool{"ok": true})
+		writeJSON(w, 200, map[string]any{"ok": true, "checkId": m.requestCheck()})
 	case r.URL.Path == "/api/config" && r.Method == "POST":
 		m.mu.Lock()
-		c := Config{ProxyPort: m.config.ProxyPort}
+		c := Config{ProxyPort: m.config.ProxyPort, LatencyPolicy: m.config.LatencyPolicy, AppRules: m.config.AppRules}
 		m.mu.Unlock()
 		if e := json.NewDecoder(r.Body).Decode(&c); e != nil {
 			writeJSON(w, 400, map[string]string{"error": e.Error()})
@@ -454,8 +529,26 @@ func run() error {
 	if err := checkProxyPort(conf.ProxyPort); err != nil {
 		return err
 	}
+	if err := checkNewAppPorts(Config{}, conf); err != nil {
+		return err
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	applications, scanErr := discoverApplications(ctx)
+	// Refresh versioned installation paths at startup. Missing apps keep their
+	// cached exact rules; never silently remove a fixed route after uninstall.
+	if len(applications) > 0 && automaticApps(conf) {
+		for i, rule := range conf.AppRules {
+			if rule.Match != "application" {
+				continue
+			}
+			for _, app := range applications {
+				if app.ID == rule.ApplicationID && app.Available {
+					conf.AppRules[i].ProcessPaths = append([]string(nil), app.ProcessPaths...)
+				}
+			}
+		}
+	}
 	core := &Core{executable: coreExecutable(exe, root), secret: nonce(), dir: filepath.Join(root, "runtime"), client: &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 15 * time.Second}}
 	if e = atomicJSON(filepath.Join(core.dir, "config.json"), coreConfig(conf, core.secret)); e != nil {
 		return e
@@ -465,6 +558,9 @@ func run() error {
 	}
 	defer core.stop()
 	if err := core.verifyPort(ctx, conf.ProxyPort); err != nil {
+		return err
+	}
+	if err := core.verifyAppPorts(ctx, conf); err != nil {
 		return err
 	}
 	selected := "REJECT"
@@ -480,6 +576,13 @@ func run() error {
 	}
 	defer bridges.close()
 	m := &Manager{config: conf, health: conf.initialHealth(), selected: selected, root: root, core: core, token: nonce(), wake: make(chan struct{}, 1), cancel: cancel, bridges: bridges}
+	m.applications = applications
+	if scanErr != nil {
+		m.applicationScanError = scanErr.Error()
+	}
+	if err := m.enableSavedApplicationAccess(ctx, conf); err != nil {
+		return err
+	}
 	m.event("本地代理网关已启动")
 	go m.monitor(ctx)
 	server := &http.Server{Handler: http.HandlerFunc(m.serve), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
@@ -509,11 +612,18 @@ func run() error {
 				m.mu.Lock()
 				m.lastError = fmt.Sprintf("内核退出，正在重启：%v", err)
 				m.health = m.config.initialHealth()
+				m.selector = latencySelector{}
 				m.event(m.lastError)
 				m.mu.Unlock()
 				for ctx.Err() == nil {
 					if err = core.start(ctx); err == nil {
-						break
+						if err = core.verifyPort(ctx, m.config.ProxyPort); err == nil {
+							err = core.verifyAppPorts(ctx, m.config)
+						}
+						if err == nil {
+							break
+						}
+						core.stop()
 					}
 					select {
 					case <-ctx.Done():

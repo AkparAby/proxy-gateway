@@ -48,7 +48,7 @@ try {
     if (Test-Path -LiteralPath $out) { throw "Output already exists: $out. Keep it or move it before rebuilding." }
     $stage = Join-Path $out $name
     $cache = Join-Path $root '.release-cache'
-    foreach ($dir in @($cache, $stage, "$stage\runtime", "$stage\scripts", "$stage\licenses")) {
+    foreach ($dir in @($cache, $stage, "$stage\runtime", "$stage\scripts", "$stage\licenses", "$stage\docs\images")) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
     $binaryZip = Get-VerifiedDownload $lock.binary $cache
@@ -57,7 +57,7 @@ try {
     # Explicit allowlist: never copy the user's runtime directory or configuration.
     $payload = @(
         'Start-Gateway.cmd', 'Start-Gateway.ps1', 'Restore-Proxy.cmd', 'Restore-Proxy.ps1',
-        'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
+        'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'docs/images/mygo-overview.png',
         'scripts/integrations.ps1', 'scripts/wsl-integration.sh', 'scripts/installer-maintenance.ps1'
     )
     foreach ($file in $payload) {
@@ -82,13 +82,15 @@ try {
     & go build -trimpath -buildvcs=false -ldflags "-H=windowsgui -s -w -X main.version=$Version -X main.commit=$commit" -o (Join-Path $stage 'runtime\gateway-manager.exe') .
     if ($LASTEXITCODE -ne 0) { throw 'Go build failed.' }
 
-    $env:CGO_ENABLED = '1'
-    & go build -tags desktop -trimpath -buildvcs=false -ldflags "-H=windowsgui -s -w -extldflags=-static -X main.version=$Version -X main.commit=$commit" -o (Join-Path $stage 'proxy-gateway.exe') ./cmd/desktop
-    if ($LASTEXITCODE -ne 0) { throw 'Fyne desktop build failed. A MinGW-w64 C compiler is required.' }
-    & go run scripts/collect-go-licenses.go (Join-Path $stage 'licenses\Go-dependencies.txt')
-    if ($LASTEXITCODE -ne 0) { throw 'Dependency license collection failed.' }
+    Push-Location (Join-Path $root 'desktop/mygo')
+    try {
+        & go build -trimpath -buildvcs=false -ldflags "-H=windowsgui -s -w -X main.version=$Version -X main.commit=$commit" -o (Join-Path $stage 'proxy-gateway.exe') .
+        if ($LASTEXITCODE -ne 0) { throw 'MyGo desktop build failed.' }
+        $desktopGoVersion = (& go version | Out-String).Trim()
+        & go run ../../scripts/collect-go-licenses.go (Join-Path $stage 'licenses\Go-dependencies.txt') .
+        if ($LASTEXITCODE -ne 0) { throw 'Dependency license collection failed.' }
+    } finally { Pop-Location }
     Copy-Item -LiteralPath (Join-Path $root 'assets\NotoSansSC-OFL.txt') -Destination (Join-Path $stage 'licenses\NotoSansSC-OFL.txt')
-    Copy-Item -LiteralPath (Join-Path $root 'assets\MinGW-w64-runtime.txt') -Destination (Join-Path $stage 'licenses\MinGW-w64-runtime.txt')
     Copy-Item -LiteralPath (Join-Path $root 'assets\NSIS-zlib.txt') -Destination (Join-Path $stage 'licenses\NSIS-zlib.txt')
 
     $fileHashes = [ordered]@{}
@@ -103,6 +105,8 @@ try {
         platform = 'windows/amd64/v1'
         builtAtUtc = [DateTime]::UtcNow.ToString('o')
         go = $goVersion
+        desktop = 'MyGo v0.10.0'
+        desktopGo = $desktopGoVersion
         installerCompiler = (& $MakeNSIS /VERSION | Out-String).Trim()
         mihomo = [ordered]@{
             version = $lock.version; commit = $lock.commit
@@ -116,7 +120,7 @@ try {
     $package = Join-Path $out "$name.zip"
     [IO.Compression.ZipFile]::CreateFromDirectory($stage, $package, [IO.Compression.CompressionLevel]::Optimal, $true)
 
-    $expected = @($payload) + @('proxy-gateway.exe', 'runtime/gateway-manager.exe', 'licenses/Go-dependencies.txt', 'licenses/NotoSansSC-OFL.txt', 'licenses/MinGW-w64-runtime.txt', 'licenses/NSIS-zlib.txt', 'runtime/mihomo.exe', 'licenses/Mihomo-GPL-3.0.txt', 'licenses/Go-BSD.txt', 'release-manifest.json')
+    $expected = @($payload) + @('proxy-gateway.exe', 'runtime/gateway-manager.exe', 'licenses/Go-dependencies.txt', 'licenses/NotoSansSC-OFL.txt', 'licenses/NSIS-zlib.txt', 'runtime/mihomo.exe', 'licenses/Mihomo-GPL-3.0.txt', 'licenses/Go-BSD.txt', 'release-manifest.json')
     $zip = [IO.Compression.ZipFile]::OpenRead($package)
     try {
         $actual = @($zip.Entries | Where-Object { $_.Name } | ForEach-Object {

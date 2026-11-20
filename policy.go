@@ -3,14 +3,19 @@ package main
 import "time"
 
 type Health struct {
-	Available    bool      `json:"available"`
-	Checked      bool      `json:"checked"`
-	LastOK       bool      `json:"lastOK"`
-	Failures     int       `json:"failures"`
-	Latency      int       `json:"latency"`
-	CheckedAt    time.Time `json:"checkedAt"`
-	HealthySince time.Time `json:"healthySince"`
-	Detail       string    `json:"detail"`
+	CheckID         uint64 `json:"checkId"`
+	Checking        bool   `json:"checking"`
+	SmoothedLatency int    `json:"smoothedLatency"`
+	samples         [3]int
+	sampleCount     int
+	Available       bool      `json:"available"`
+	Checked         bool      `json:"checked"`
+	LastOK          bool      `json:"lastOK"`
+	Failures        int       `json:"failures"`
+	Latency         int       `json:"latency"`
+	CheckedAt       time.Time `json:"checkedAt"`
+	HealthySince    time.Time `json:"healthySince"`
+	Detail          string    `json:"detail"`
 }
 
 func (h *Health) record(ok bool, latency int, detail string, now time.Time, limit int) {
@@ -20,12 +25,23 @@ func (h *Health) record(ok bool, latency int, detail string, now time.Time, limi
 	h.Detail = detail
 	h.Latency = latency
 	if ok {
+		h.samples[h.sampleCount%len(h.samples)] = latency
+		h.sampleCount++
+		count := min(h.sampleCount, len(h.samples))
+		sum := 0
+		for _, value := range h.samples[:count] {
+			sum += value
+		}
+		h.SmoothedLatency = sum / count
 		if h.HealthySince.IsZero() {
 			h.HealthySince = now
 		}
 		h.Available = true
 		h.Failures = 0
 	} else {
+		h.sampleCount = 0
+		h.samples = [3]int{}
+		h.SmoothedLatency = 0
 		h.HealthySince = time.Time{}
 		h.Failures++
 		if h.Failures >= limit {

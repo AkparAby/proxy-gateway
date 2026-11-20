@@ -29,6 +29,11 @@ type disableable interface {
 	Enable()
 }
 type Window struct {
+	optimal                                                    *widget.Check
+	latencyRounds, latencyDifference, latencyCooldown          *formEntry
+	appRules                                                   *fyne.Container
+	appLabels                                                  map[string]*widget.Label
+	appButtons                                                 []*widget.Button
 	App                                                        fyne.App
 	Window                                                     fyne.Window
 	api                                                        API
@@ -41,10 +46,12 @@ type Window struct {
 	health, integrations                                       *fyne.Container
 	events                                                     *widget.Label
 	list                                                       *widget.List
-	name, host, port, proxyPort                                *widget.Entry
+	name, host, port, proxyPort                                *formEntry
 	protocol, mode, autoReturn                                 *widget.Select
-	interval, timeout, failures, recovery, targets, domains    *widget.Entry
+	interval, timeout, failures, recovery, targets, domains    *formEntry
 	check, returnPrimary, save, discard, add, remove, up, down *widget.Button
+	retry                                                      *widget.Button
+	reconnecting                                               bool
 	editables                                                  []disableable
 	integrationButtons                                         map[string]*widget.Button
 	integrationSignature                                       string
@@ -86,7 +93,8 @@ func New(app fyne.App, api API, ctx context.Context) *Window {
 	})
 	u.buildEditor()
 	u.buildPolicy()
-	u.proxyPort = widget.NewEntry()
+	u.appRules = container.NewVBox()
+	u.proxyPort = newFormEntry(false)
 	u.proxyPort.OnChanged = func(string) { u.markDirty() }
 	u.editables = append(u.editables, u.proxyPort)
 	logo := canvas.NewImageFromResource(icon)
@@ -94,7 +102,7 @@ func New(app fyne.App, api API, ctx context.Context) *Window {
 	logo.SetMinSize(fyne.NewSize(56, 56))
 	heading := container.NewBorder(nil, nil, logo, nil, container.NewVBox(widget.NewLabelWithStyle("PROXY GATEWAY", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), u.header))
 	overview := container.NewVScroll(container.NewVBox(widget.NewCard("", "", container.NewVBox(container.NewHBox(widget.NewLabel("当前出口"), u.current), u.reason, container.NewHBox(u.check, u.returnPrimary))), u.health))
-	apps := container.NewVScroll(container.NewVBox(wrap("按需启用接入。每项保存原值，停用时恢复；代理客户端仍需保持连接。"), u.integrations))
+	apps := container.NewVScroll(container.NewVBox(u.appRules, widget.NewSeparator(), wrap("系统与工具接入 · 每项保存原值，停用时恢复；代理客户端仍需保持连接。"), u.integrations))
 	tabs := container.NewAppTabs(
 		container.NewTabItemWithIcon("概览", theme.HomeIcon(), overview),
 		container.NewTabItemWithIcon("代理出口", theme.ComputerIcon(), u.editorContent()),
@@ -104,12 +112,8 @@ func New(app fyne.App, api API, ctx context.Context) *Window {
 		container.NewTabItemWithIcon("事件", theme.HistoryIcon(), container.NewVScroll(u.events)),
 	)
 	quit := widget.NewButton("恢复接入并退出", u.ConfirmExit)
-	retry := widget.NewButton("启动网关", func() {
-		if u.OnReconnect != nil {
-			u.OnReconnect()
-		}
-	})
-	footer := container.NewVBox(u.notice, container.NewHBox(u.saved, layout.NewSpacer(), u.discard, u.save), widget.NewSeparator(), container.NewHBox(widget.NewLabel("关闭窗口后继续在托盘运行"), layout.NewSpacer(), retry, quit))
+	u.retry = widget.NewButton("启动网关", u.Reconnect)
+	footer := container.NewVBox(u.notice, container.NewHBox(u.saved, layout.NewSpacer(), u.discard, u.save), widget.NewSeparator(), container.NewHBox(widget.NewLabel("关闭窗口后继续在托盘运行"), layout.NewSpacer(), u.retry, quit))
 	u.Window.SetContent(container.NewBorder(container.NewVBox(heading, widget.NewSeparator()), footer, nil, nil, tabs))
 	u.setupMenus(icon)
 	u.controls()
@@ -120,9 +124,32 @@ func wrap(text string) *widget.Label {
 	l.Wrapping = fyne.TextWrapWord
 	return l
 }
+
+func setLabelText(label *widget.Label, text string) {
+	if label.Text != text {
+		label.SetText(text)
+	}
+}
+
 func (u *Window) Show()                 { u.Window.Show(); u.Window.RequestFocus() }
-func (u *Window) SetNotice(text string) { u.notice.SetText(text) }
+func (u *Window) SetNotice(text string) { setLabelText(u.notice, text) }
 func (u *Window) IsReady() bool         { return u.loaded && u.online }
+func (u *Window) Reconnect() {
+	if u.online || u.reconnecting || u.busy || u.OnReconnect == nil {
+		return
+	}
+	u.reconnecting = true
+	u.controls()
+	u.OnReconnect()
+}
+func (u *Window) ReconnectFinished(err error) {
+	u.reconnecting = false
+	if err != nil {
+		u.SetNotice(err.Error())
+		u.Show()
+	}
+	u.controls()
+}
 func (u *Window) Start() {
 	go func() {
 		for {
@@ -146,22 +173,30 @@ func (u *Window) Start() {
 }
 func (u *Window) offline(err error) {
 	u.online = false
-	u.header.SetText("网关未连接 · 可点击“启动网关”重试")
-	u.reason.SetText(err.Error())
+	setLabelText(u.header, "网关未连接 · 可点击“启动网关”重试")
+	setLabelText(u.reason, err.Error())
 	u.controls()
 	u.updateTray("网关未连接")
 }
 func (u *Window) display(s client.Status) {
+	catalogChanged := !reflect.DeepEqual(u.status.Applications, s.Applications) || u.status.ApplicationScanError != s.ApplicationScanError
 	healthChanged := !reflect.DeepEqual(u.status.Health, s.Health) || !reflect.DeepEqual(u.status.Config.Outbounds, s.Config.Outbounds) || u.status.Selected != s.Selected
 	u.status = s
 	u.online = true
-	u.header.SetText("网关运行中 · " + s.Version + " · HTTP / SOCKS5 " + s.Proxy)
-	u.current.SetText(s.Config.Name(s.Selected))
+	strategy := "优先级故障切换"
+	if s.Config.LatencyPolicy.Enabled {
+		strategy = "低延迟自动择优"
+	}
+	if s.Config.Mode != "auto" {
+		strategy = "默认流量固定出口"
+	}
+	setLabelText(u.header, "网关运行中 · "+s.Version+" · "+strategy+" · "+s.Proxy)
+	setLabelText(u.current, s.Config.Name(s.Selected))
 	reason := s.Reason
 	if s.Error != "" {
 		reason = s.Error
 	}
-	u.reason.SetText(reason)
+	setLabelText(u.reason, reason)
 	if !u.loaded {
 		u.loaded = true
 		u.fill(s.Config)
@@ -170,7 +205,7 @@ func (u *Window) display(s client.Status) {
 		u.fill(s.Config)
 	}
 	if u.dirty && !reflect.DeepEqual(u.base, s.Config) {
-		u.saved.SetText("配置已在其他窗口更新，请撤销修改后重新编辑")
+		setLabelText(u.saved, "配置已在其他窗口更新，请撤销修改后重新编辑")
 	}
 	if healthChanged {
 		u.health.RemoveAll()
@@ -190,22 +225,47 @@ func (u *Window) display(s client.Status) {
 			if o.ID == s.Selected {
 				active = " · 当前使用"
 			}
-			detail := fmt.Sprintf("%s://%s:%d · %s · %d ms · 连续失败 %d 次", o.Type, o.Host, o.Port, state, h.Latency, h.Failures)
+			delays := "等待有效延迟检测"
+			if h.LastOK {
+				delays = fmt.Sprintf("本轮 %d ms · 平滑 %d ms", h.Latency, h.SmoothedLatency)
+			}
+			detail := fmt.Sprintf("%s://%s:%d · %s · %s · 连续失败 %d 次", o.Type, o.Host, o.Port, state, delays, h.Failures)
 			name := wrap(fmt.Sprintf("%d. %s%s", i+1, o.Name, active))
 			name.TextStyle = fyne.TextStyle{Bold: true}
 			u.health.Add(widget.NewCard("", "", container.NewVBox(name, wrap(detail), wrap(h.Detail))))
 		}
 	}
 	u.renderIntegrations(s)
+	if catalogChanged {
+		u.renderAppRules()
+	}
+	u.updateAppStatus()
 	var events strings.Builder
 	for _, event := range s.Events {
 		fmt.Fprintf(&events, "%s  %s\n\n", event.Time.Local().Format("15:04:05"), event.Message)
 	}
-	u.events.SetText(events.String())
+	setLabelText(u.events, events.String())
 	u.updateTray("当前：" + s.Config.Name(s.Selected))
 	u.controls()
 }
 func (u *Window) controls() {
+	if u.online {
+		u.retry.Hide()
+	} else {
+		u.retry.Show()
+		text := "启动网关"
+		if u.reconnecting {
+			text = "正在启动…"
+		}
+		if u.retry.Text != text {
+			u.retry.SetText(text)
+		}
+		if u.reconnecting || u.busy {
+			u.retry.Disable()
+		} else {
+			u.retry.Enable()
+		}
+	}
 	enabled := u.online && u.loaded && !u.busy
 	set := func(x disableable, yes bool) {
 		if yes {
@@ -215,11 +275,18 @@ func (u *Window) controls() {
 		}
 	}
 	for _, x := range u.editables {
-		set(x, enabled)
+		active := enabled
+		switch x {
+		case u.optimal:
+			active = enabled && u.draft.Mode == "auto"
+		case u.autoReturn, u.recovery:
+			active = enabled && u.draft.Mode == "auto" && !u.optimal.Checked
+		case u.latencyRounds, u.latencyDifference, u.latencyCooldown:
+			active = enabled && u.draft.Mode == "auto" && u.optimal.Checked
+		}
+		set(x, active)
 	}
-	for _, b := range []*widget.Button{u.check, u.save, u.discard, u.add} {
-		set(b, enabled)
-	}
+	set(u.check, enabled)
 	set(u.save, enabled && u.dirty)
 	set(u.discard, enabled && u.dirty)
 	set(u.add, enabled && len(u.draft.Outbounds) < 16)
@@ -227,7 +294,10 @@ func (u *Window) controls() {
 	set(u.up, enabled && u.selected > 0)
 	set(u.down, enabled && u.selected >= 0 && u.selected < len(u.draft.Outbounds)-1)
 	primaryHealthy := len(u.status.Config.Outbounds) > 0 && u.status.Health[u.status.Config.Outbounds[0].ID].Available
-	set(u.returnPrimary, enabled && u.status.Config.Mode == "auto" && primaryHealthy)
+	set(u.returnPrimary, enabled && u.status.Config.Mode == "auto" && !u.status.Config.LatencyPolicy.Enabled && primaryHealthy)
+	for _, button := range u.appButtons {
+		set(button, enabled)
+	}
 	for _, button := range u.integrationButtons {
 		set(button, enabled)
 	}
@@ -333,6 +403,8 @@ func (u *Window) renderIntegrations(s client.Status) {
 		if s.Integrations[key] {
 			text = "停用并恢复"
 		}
-		button.SetText(text)
+		if button.Text != text {
+			button.SetText(text)
+		}
 	}
 }

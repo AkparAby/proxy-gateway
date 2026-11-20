@@ -101,13 +101,14 @@ func run() error {
 		go func() {
 			startup.Lock()
 			defer startup.Unlock()
-			if err := ensureGateway(ctx, api, manager, root, lf); err != nil {
+			err := ensureGateway(ctx, api, manager, root, lf)
+			if err != nil {
 				log.Print(err)
-				fyne.Do(func() { w.SetNotice(err.Error()); w.Show() })
 			}
+			fyne.Do(func() { w.ReconnectFinished(err) })
 		}()
 	}
-	w.OnReconnect()
+	w.Reconnect()
 	w.Start()
 	go func() {
 		for {

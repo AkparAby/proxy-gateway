@@ -119,22 +119,31 @@ func (c *Core) probe(ctx context.Context, name string, conf Config) (bool, int, 
 	for _, target := range conf.Targets {
 		go func(target string) {
 			var data struct {
-				Delay int `json:"delay"`
+				Delay *int `json:"delay"`
 			}
 			path := "/proxies/" + url.PathEscape(coreName(name)) + "/delay?url=" + url.QueryEscape(target) + "&timeout=" + fmt.Sprint(conf.Timeout) + "&expected=200-299"
 			err := c.request(probeCtx, "GET", path, nil, &data)
-			results <- result{err == nil, data.Delay}
+			if err == nil && data.Delay != nil && *data.Delay >= 0 && *data.Delay <= conf.Timeout {
+				results <- result{true, *data.Delay}
+			} else {
+				results <- result{}
+			}
 		}(target)
 	}
-	for range conf.Targets {
+	successes, total := 0, 0
+	for i := 0; i < len(conf.Targets); i++ {
 		select {
 		case r := <-results:
 			if r.ok {
-				return true, r.latency, "HTTPS 检测通过"
+				successes++
+				total += r.latency
 			}
 		case <-probeCtx.Done():
-			return false, 0, "HTTPS 检测超时"
+			i = len(conf.Targets)
 		}
+	}
+	if successes > 0 {
+		return true, total / successes, fmt.Sprintf("HTTPS 检测 %d/%d 成功；仅成功目标计入平均延迟", successes, len(conf.Targets))
 	}
 	return false, 0, "所有检测地址均失败"
 }

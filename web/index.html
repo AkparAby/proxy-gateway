@@ -8,7 +8,7 @@
 </head>
 <body><main>
   <header>
-    <div><div class="eyebrow">LOCAL PROXY GATEWAY</div><h1>一个入口，多个代理出口。</h1><p>应用连接 <code id="proxy-address">正在读取</code>，出口按优先级自动切换。</p></div>
+    <div><div class="eyebrow">LOCAL PROXY GATEWAY</div><h1>一个入口，多个代理出口。</h1><p>默认入口 <code id="proxy-address">正在读取</code> · <span id="strategy">正在读取策略</span></p></div>
     <div class="connection-info"><span id="connection" class="pill">正在连接</span><small id="version"></small></div>
   </header>
   <div id="notice" role="status" hidden></div>
@@ -25,8 +25,15 @@
       <p class="hint">默认 17890，HTTP / SOCKS5 共用。修改后同步已启用的接入；现有连接可能中断，终端及容器需重新打开或创建。手动配置的代理地址需自行修改。管理端口 17880 / 17881 / 17882 不可占用。</p>
       <div id="outbound-editor"></div>
       <button id="add-outbound" type="button">＋ 添加代理应用</button>
+      <label class="check-label"><input name="latencyEnabled" type="checkbox">自动切换最优网络（低延迟）</label>
+      <p class="hint">默认关闭。开启后按最近 3 轮平滑延迟择优，暂停优先级恢复回切；应用固定规则始终优先。当前出口故障时跳过防抖等待，只切换新连接。</p>
+      <div class="grid">
+        <label>连续更快轮数<input name="latencyRounds" type="number" min="1" max="10" required></label>
+        <label>至少快（毫秒）<input name="latencyDifference" type="number" min="0" max="10000" required></label>
+        <label>切换冷却（秒）<input name="latencyCooldown" type="number" min="0" max="3600" required></label>
+      </div>
       <div class="grid policy-grid">
-        <label>运行模式<select name="mode"><option value="auto">自动按优先级切换</option></select></label>
+        <label>运行模式<select name="mode"><option value="auto">自动选择出口</option></select></label>
         <label>更高优先级出口恢复后<select name="autoReturn"><option value="true">稳定后自动切回</option><option value="false">保持当前出口，手动切回</option></select></label>
         <label>恢复观察时间（秒）<input name="recovery" type="number" min="0" max="3600" required></label>
         <label>检查间隔（秒）<input name="interval" type="number" min="3" max="300" required></label>
@@ -38,12 +45,17 @@
         <label>直连域名后缀（每行一个，不写通配符）<textarea name="directDomains" rows="4"></textarea></label>
         <p class="hint">本机、局域网和 Tailscale 私有地址直连。其他进入网关的请求按出口优先级转发；出口客户端仍可按自身规则分流。上游暂不支持账号密码认证。</p>
       </details>
-      <div class="actions"><button type="submit" class="primary">保存出口与策略</button><button id="discard" type="button">撤销修改</button></div>
+      <h2>应用固定代理</h2>
+      <p class="hint">选择应用和代理客户端，保存后网关自动识别并配置接入。无需去应用里填代理地址或手动找程序路径。固定客户端故障时不改道。</p>
+      <div id="app-rule-editor"></div>
+      <div class="actions"><button id="add-app-rule" type="button">选择应用</button><button id="add-codex" type="button">绑定 Codex</button><button id="add-claude" type="button">绑定 Claude</button><button id="refresh-apps" type="button">刷新应用列表</button><button id="add-advanced-rule" type="button">高级规则</button></div>
+      <p class="hint">桌面版和 CLI 分别显示。首次接入后，已打开的应用或终端可能需要重启一次。其他接入应用继续跟随默认策略。手动地址和路径配置保留在高级规则中。</p>
+      <div class="actions"><button type="submit" class="primary">保存全部设置</button><button id="discard" type="button">撤销修改</button></div>
     </fieldset></form>
     <div class="actions"><button id="return" type="button" disabled>现在切回首选出口</button><small>针对已保存的配置，仅自动模式可用。</small></div>
   </section>
-  <section><h2>应用接入</h2><p class="hint">每项独立启用，并保存原值供恢复。系统代理影响所有遵循它的应用；环境变量对新启动的程序生效。</p><div id="integrations"></div><p class="hint">接入项按系统显示。Git SSH 不受 HTTP 代理选项控制。终端、Docker 和 WSL 的适用范围及手动配置见 README。</p></section>
+  <section><h2>应用接入与固定规则状态</h2><div id="app-rule-status"></div><p class="hint">活动连接仅反映当前命中情况，暂无活动连接不代表规则未生效。每项接入独立启用，并保存原值供恢复。</p><div id="integrations"></div><p class="hint">接入项按系统显示。Git SSH 不受 HTTP 代理选项控制。终端、Docker 和 WSL 的适用范围及手动配置见 README。</p></section>
   <section><h2>最近事件</h2><ul id="events"></ul></section>
   <footer><span>仅本机管理 · HTTP / SOCKS5 统一入口 · 已有连接可能需要重试</span><button id="stop" class="danger" disabled>恢复接入设置并停止</button></footer>
-</main><script src="/app.js"></script></body>
+</main><script src="/app-rules.js"></script><script src="/app.js"></script></body>
 </html>

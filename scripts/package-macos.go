@@ -1,6 +1,6 @@
 //go:build ignore
 
-// Run on an Apple Silicon Mac: go run scripts/package-macos.go -version v0.4.1
+// Run on an Apple Silicon Mac: go run scripts/package-macos.go -version v0.5.0
 package main
 
 import (
@@ -35,7 +35,11 @@ func must(err error) {
 	}
 }
 func command(name string, args ...string) string {
+	return commandIn("", name, args...)
+}
+func commandIn(dir, name string, args ...string) string {
 	c := exec.Command(name, args...)
+	c.Dir = dir
 	b, err := c.CombinedOutput()
 	if err != nil {
 		panic(fmt.Sprintf("%s: %s: %v", name, b, err))
@@ -109,9 +113,12 @@ func main() {
 	must(gz.Close())
 	must(f.Close())
 	write(filepath.Join(resources, "mihomo"), b, 0755)
-	for _, build := range [][2]string{{filepath.Join(resources, "proxy-gateway"), "."}, {filepath.Join(macos, "ProxyGateway"), "./cmd/desktop"}} {
-		c := exec.Command("go", "build", "-tags", "desktop", "-trimpath", "-buildvcs=false", "-ldflags", "-s -w -X main.version="+*version+" -X main.commit="+commit, "-o", build[0], build[1])
-		c.Env = append(os.Environ(), "GOOS=darwin", "GOARCH=arm64", "CGO_ENABLED=1", "MACOSX_DEPLOYMENT_TARGET=12.0", "GOARM64=v8.0")
+	for _, build := range [][2]string{{filepath.Join(resources, "proxy-gateway"), "."}, {filepath.Join(macos, "ProxyGateway"), "desktop/mygo"}} {
+		output, err := filepath.Abs(build[0])
+		must(err)
+		c := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags", "-s -w -X main.version="+*version+" -X main.commit="+commit, "-o", output, ".")
+		c.Dir = build[1]
+		c.Env = append(os.Environ(), "GOOS=darwin", "GOARCH=arm64", "CGO_ENABLED=0", "MACOSX_DEPLOYMENT_TARGET=12.0", "GOARM64=v8.0")
 		if b, err := c.CombinedOutput(); err != nil {
 			panic(fmt.Sprintf("build: %s: %v", b, err))
 		}
@@ -146,7 +153,7 @@ func main() {
 		}
 	}
 	command("/usr/bin/iconutil", "-c", "icns", iconset, "-o", filepath.Join(resources, "AppIcon.icns"))
-	for _, file := range []string{"README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"} {
+	for _, file := range []string{"README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "docs/images/mygo-overview.png"} {
 		write(filepath.Join(stage, file), read(file), 0644)
 		write(filepath.Join(resources, file), read(file), 0644)
 	}
@@ -170,7 +177,9 @@ func main() {
 		panic("Mihomo license missing")
 	}
 	write(filepath.Join(resources, "licenses", "Go-BSD.txt"), read(filepath.Join(command("go", "env", "GOROOT"), "LICENSE")), 0644)
-	command("go", "run", "scripts/collect-go-licenses.go", filepath.Join(resources, "licenses", "Go-dependencies.txt"))
+	dependencyNotices, err := filepath.Abs(filepath.Join(resources, "licenses", "Go-dependencies.txt"))
+	must(err)
+	commandIn("desktop/mygo", "go", "run", "../../scripts/collect-go-licenses.go", dependencyNotices, ".")
 	write(filepath.Join(resources, "licenses", "NotoSansSC-OFL.txt"), read("assets/NotoSansSC-OFL.txt"), 0644)
 	// Ad-hoc signing supplies a valid bundle seal; this is NOT Developer ID
 	// signing or notarization and still requires Gatekeeper user approval.
@@ -196,6 +205,8 @@ func main() {
 		return nil
 	}))
 	manifest := map[string]any{"project": "https://github.com/AkparAby/proxy-gateway", "version": *version, "commit": commit, "platform": "darwin/arm64", "go": command("go", "version"), "builtAtUtc": time.Now().UTC().Format(time.RFC3339), "signing": "ad-hoc; not notarized", "files": files, "mihomo": map[string]string{"version": lock.Version, "commit": lock.Commit, "binaryUrl": lock.DarwinArm64.URL, "binaryArchiveSha256": lock.DarwinArm64.SHA256, "sourceUrl": "https://github.com/AkparAby/proxy-gateway/releases/download/" + *version + "/" + lock.Source.Name, "sourceArchiveSha256": lock.Source.SHA256}}
+	manifest["desktop"] = "MyGo v0.10.0"
+	manifest["desktopGo"] = commandIn("desktop/mygo", "go", "version")
 	b, err = json.MarshalIndent(manifest, "", "  ")
 	must(err)
 	write(filepath.Join(stage, "release-manifest.json"), append(b, '\n'), 0644)
